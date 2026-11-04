@@ -20,7 +20,7 @@ You have never seen this project. This page says what to read, in what order, an
 6. **[`template-decisions.md`](template-decisions.md)** — the why of each rule and the gate that guards it. Read before thinking about "simplifying" a rule.
 7. **[`construction.md`](construction.md)** — how to conduct the waves and assemble the delegation packages.
 8. **[`architecture-log.md`](architecture-log.md)** — the decisions already made in this project.
-9. **The gates as specification:** `tests/test_style.py`, `tests/test_architecture.py`, `tests/test_config.py`. The test comments cite the guide section that each rule protects (`§2`, `§3.1`…).
+9. **The gates as specification:** `tests/gates/test_style.py`, `tests/gates/test_architecture.py`, `tests/gates/test_config.py`. The test comments cite the guide section that each rule protects (`§2`, `§3.1`…).
 
 Stop here and run the four gates (`AGENTS.md`, "Gates" section) before changing anything.
 

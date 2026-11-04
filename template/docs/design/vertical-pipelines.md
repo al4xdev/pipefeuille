@@ -50,7 +50,7 @@ notes/save/
 | `pipeline.py` | `Pipe` and its transformation methods. | A place to hide the sequence; the order stays in `run`. |
 | `__init__.py` | Identifies the package. | A place for startup, config reading, connection or plugin. |
 
-**The five names are mandatory in every `backend_logic` package, and no other module name exists** (owner decision of this template; see [template-decisions.md](template-decisions.md)). The reason is readability: whoever opens a folder knowing nothing about the domain — what is `codec`? what does `jsonvalue` do? — still knows where to start (`run.py`, `def run`), what the package keeps (`container.py`) and what it exchanges (`contracts.py`). A shared mechanism does not become a loose module (`files.py`, `locks.py`, `jsonvalue.py`): it becomes one package per operation, with a readable name (`storage/write/`, `storage/lock/`, `json/decode/`). The only two folders that are not complete packages are `_shared/` and the groupings inside it (below). `tests/test_style.py` guarantees the shape of each kind of folder and the absence of any other module.
+**The five names are mandatory in every `backend_logic` package, and no other module name exists** (owner decision of this template; see [template-decisions.md](template-decisions.md)). The reason is readability: whoever opens a folder knowing nothing about the domain — what is `codec`? what does `jsonvalue` do? — still knows where to start (`run.py`, `def run`), what the package keeps (`container.py`) and what it exchanges (`contracts.py`). A shared mechanism does not become a loose module (`files.py`, `locks.py`, `jsonvalue.py`): it becomes one package per operation, with a readable name (`storage/write/`, `storage/lock/`, `json/decode/`). The only two folders that are not complete packages are `_shared/` and the groupings inside it (below). `tests/gates/test_style.py` guarantees the shape of each kind of folder and the absence of any other module.
 
 **Depth says who uses it; `_shared/` says it is shared.** The tree is the architecture, and a package's **place** declares who uses it:
 
@@ -104,7 +104,7 @@ Three folder shapes, and only three:
 | `_shared/` | only `__init__.py` (docstring) | shelf; not a code package |
 | grouping (child of `_shared/` without `run.py`) | `__init__.py` and `contracts.py` | gathers the operations of a mechanism (`json/`, `storage/`) and keeps the value they all exchange (`JsonValue`, `FileStore`); must have at least one subpackage |
 
-Rules of `_shared/`, all checked by `tests/test_style.py`:
+Rules of `_shared/`, all checked by `tests/gates/test_style.py`:
 
 - **Never a family.** Nothing inside `_shared/` declares `<Family>Request` or has a `match`; the root never dispatches it as a family. Whoever needs it calls the operation's `run` directly (`decoding.run(DecodeText(...))`). This is also security: if the root dispatched `WriteDocument`, the frontend would write any file, skipping the rules of `notes`.
 - **It is private to the owner.** Only whoever is inside the parent of a `_shared/` imports it: `roles/` does not reach `notes/_shared/storage/`. The type that a consumer outside the mechanism needs (`FileStore`) lives in the grouping's `contracts.py`, not in a `_shared/` internal to it.
@@ -147,8 +147,8 @@ Each case calls a method of the family's `Pipe` that delegates to the child's `r
 - `backend_logic/run.py` has one `@overload` per use case. It is the public contract, read from top to bottom as the backend's menu: each request, what it requires and what it returns. The frontend needs it to receive `NoteNames`, and not the union.
 - Whoever, inside the backend, needs an exact product calls the `run` of the **process** that produces it (`lazy from backend_logic._shared.json.encode import run as encoding`, `lazy from backend_logic.notes._shared.storage.lock import run as locking`), never the family's. The process's `materialize()` already returns the exact type, and mypy checks that against the body.
 - A family's `run` is only imported by the parent's `pipeline.py`, that is, in the climb.
-- Reason: an overload is a promise that mypy does **not** check against each `case`. In a test with `run(EncodeValue) -> int`, with the body returning `str`, the `run.py` of the family that dispatched JSON passed clean and only the callers broke. One block only, at the root and covered by `tests/test_backend_run.py`, leaves fewer unverified promises than one block per family.
-- `tests/test_style.py` fails an overload in a family that is not the root and an import of a family's `run` outside the parent.
+- Reason: an overload is a promise that mypy does **not** check against each `case`. In a test with `run(EncodeValue) -> int`, with the body returning `str`, the `run.py` of the family that dispatched JSON passed clean and only the callers broke. One block only, at the root and covered by `tests/example/test_backend_run.py`, leaves fewer unverified promises than one block per family.
+- `tests/gates/test_style.py` fails an overload in a family that is not the root and an import of a family's `run` outside the parent.
 
 ### 2.1. Minimal complete example
 
@@ -323,7 +323,7 @@ A new recurring name goes to `docs/design/vocabulary.md` in the **proposals** se
 
 ### 4.1. Semantic indentation
 
-Deepening the indentation communicates sequence/dependency. The formatter would flatten this ladder, so **the template's `pyproject.toml` excludes `backend_logic/**/run.py` from `ruff format`** (with `force-exclude = true`, so that it also applies when an editor or agent passes the file path). No `run.py` needs `# fmt: off`/`# fmt: on`, and `tests/test_style.py` forbids those escapes in `backend_logic`. The linter still applies to `run.py` (imports, line length, names, bugs); whoever writes the `run` is responsible for its form. The `run` snippets quoted in `docs/**/*.md` stay outside the formatter for the same reason. All the rest of the code follows the formatter.
+Deepening the indentation communicates sequence/dependency. The formatter would flatten this ladder, so **the template's `pyproject.toml` excludes `backend_logic/**/run.py` from `ruff format`** (with `force-exclude = true`, so that it also applies when an editor or agent passes the file path). No `run.py` needs `# fmt: off`/`# fmt: on`, and `tests/gates/test_style.py` forbids those escapes in `backend_logic`. The linter still applies to `run.py` (imports, line length, names, bugs); whoever writes the `run` is responsible for its form. The `run` snippets quoted in `docs/**/*.md` stay outside the formatter for the same reason. All the rest of the code follows the formatter.
 
 ### 4.2. Branches, loops and locks stay in `run`
 
@@ -389,7 +389,7 @@ Chaining after the `await` is valid Python (`(await pipe.call(model=model)).deco
 
 Parallel is the parent calling **sibling packages at the same time** in an `asyncio.TaskGroup`: each `create_task` is the `run` of a complete package, with its own Container. No generic phase executor nor list of callbacks — the group stays visible in the parent's `run`, and each branch is a process that reads on its own.
 
-The same holds for **fan-out over items**: N calls of a sibling package's `run`, each with its own Container. Real example from the template, `backend_logic/roles/digest/run.py` (one summary per note, tested in `tests/test_roles_digest.py`):
+The same holds for **fan-out over items**: N calls of a sibling package's `run`, each with its own Container. Real example from the template, `backend_logic/roles/digest/run.py` (one summary per note, tested in `tests/example/test_roles_digest.py`):
 
 ```python
 async def run(initial: DigestNotes, *, model: Model) -> Digest:
@@ -482,22 +482,22 @@ The goal is not green mypy: it is to **reduce what the implementer has to guess*
 - Types do not prove ranges, relations between fields, privacy or temporal order: declare preconditions and validate at runtime.
 - Never relax the gate (exclude a module, turn off a rule) to get green.
 
-Reference configuration (the template's `pyproject.toml`): `mypy strict = true`, `disallow_any_explicit`, `disallow_any_unimported`, **global** `disallow_any_expr` (logic, frontend and tests), `warn_unreachable`, `strict_bytes` and the extra codes `ignore-without-code`, `redundant-expr`, `redundant-self`, `truthy-bool`, `truthy-iterable`, `possibly-undefined`, `unused-awaitable`, `explicit-override`, `mutable-override`, `exhaustive-match` and `deprecated`; Ruff with `E,F,I,N,W,UP,B,C4,SIM`. The test `tests/test_config.py` fails if this configuration is loosened.
+Reference configuration (the template's `pyproject.toml`): `mypy strict = true`, `disallow_any_explicit`, `disallow_any_unimported`, **global** `disallow_any_expr` (logic, frontend and tests), `warn_unreachable`, `strict_bytes` and the extra codes `ignore-without-code`, `redundant-expr`, `redundant-self`, `truthy-bool`, `truthy-iterable`, `possibly-undefined`, `unused-awaitable`, `explicit-override`, `mutable-override`, `exhaustive-match` and `deprecated`; Ruff with `E,F,I,N,W,UP,B,C4,SIM`. The test `tests/gates/test_config.py` fails if this configuration is loosened.
 
 **`Any` only as a last resort, and contained.** When a library hands over `Any` with no typed alternative, it stays trapped in a boundary module with its own name, which narrows the value (`isinstance`, strict decoding) before returning it. Only those modules are exempt from `disallow_any_expr` in `pyproject.toml`. The template has three, explained in [template-decisions.md](template-decisions.md) (C2); a new boundary in the project requires an owner decision and an entry in `architecture-log.md`:
 
 | Boundary | `Any` from whom | Comes out as |
 | --- | --- | --- |
 | `backend_logic/_shared/json/decode` | `json.loads` and its hooks | `JsonValue` |
-| `tests/test_config.py` | `tomllib.loads` | values narrowed by `isinstance` |
-| `tests/wire_client.py` | Starlette's `TestClient` (reaches mypy entirely as `Any`) | `WireResponse(status: int, body: JsonValue)` |
+| `tests/gates/test_config.py` | `tomllib.loads` | values narrowed by `isinstance` |
+| `tests/support/wire_client.py` | Starlette's `TestClient` (reaches mypy entirely as `Any`) | `WireResponse(status: int, body: JsonValue)` |
 
 Before opening a boundary, look for the typed way out. In the template these were:
 
 - **FastAPI decorators** (`@router.get`) are typed with `Any`: routes are registered with `router.add_api_route(path, function, methods=[...])`.
 - **A library `Any` parameter** (`JSONResponse(content)`, `json.dumps(obj)`): pass an already annotated value (`body: JsonValue = {...}`) so the literal is not inferred with `Any`.
 - **Overriding in fakes:** `@override` on every redefined method. Extra data of the fake lives in an attribute of the fake, not in a subclass of the Container, because narrowing an inherited mutable attribute is unsafe (`mutable-override`).
-- **Purposely wrong call** in a runtime guard test: `# type: ignore[call-overload, misc]`, always with code and comment. They are the template's only `ignore`s, both in `tests/test_backend_run.py`.
+- **Purposely wrong call** in a runtime guard test: `# type: ignore[call-overload, misc]`, always with code and comment. They are the template's only `ignore`s, both in `tests/example/test_backend_run.py`.
 
 **Review of raw `str`/`int` (what does not become its own type).** Input still subject to rejection stays `str` (`SaveNote.name`, the storage's `relative`s): whoever admits it is `_shared/note_name` or `storage/_shared/path`, and annotating before that would lie. Free text (`body`, prompt, `ModelReply.content`) stays `str`. Call budgets stay `int` with a name on the parameter (convention in `vocabulary.md`).
 
@@ -523,12 +523,12 @@ Language rules:
 
 **Fallback:** if a package does not work as lazy (registration at import time, a side effect the code depends on, a tool that does not yet understand the syntax), replace the `lazy import` with a normal `import` at that point. The behaviour is the same, only eager. For the gate to accept the swap:
 
-1. register the module in `EAGER_IMPORTS` (in `tests/test_style.py`) with the reason;
+1. register the module in `EAGER_IMPORTS` (in `tests/gates/test_style.py`) with the reason;
 2. record the exception in `architecture-log.md`.
 
 To return the whole project to eager, remove every `lazy `. The template was verified this way: same tests green and mypy clean. In this CPython build, `-X lazy_imports` accepts only `all` and `normal` and does not turn off explicit lazy, so the fallback is to change the code, not to pass a flag.
 
-Gate: `tests/test_style.py::test_every_top_level_import_is_lazy`.
+Gate: `tests/gates/test_style.py::test_every_top_level_import_is_lazy`.
 
 ---
 
@@ -579,7 +579,7 @@ Gate: `tests/test_style.py::test_every_top_level_import_is_lazy`.
 | `backend_logic` | `backend_frontend` |
 | --- | --- |
 | Domain, agents, pipelines, validation, transactions, persistence, provider/plugin abstractions. | HTTP routes, request/response encoding, status/errors/SSE, assets, transport security. |
-| **Never** imports FastAPI, Starlette, pydantic, transport DTOs or `backend_frontend`. | Enters **only** through `backend_logic/run.py` (`from backend_logic import run as backend`) and imports from the logic only `contracts` modules (the types of requests and products). Never imports a family's `run`, `pipeline`, `container` or `helpers`. Resources (store, locks, clock) are prepared in the `lifespan` by `backend.run(PrepareResources(...))` and kept in a local frontend slot (`ResourceSlot`); `tests/test_architecture.py` guarantees the single door. |
+| **Never** imports FastAPI, Starlette, pydantic, transport DTOs or `backend_frontend`. | Enters **only** through `backend_logic/run.py` (`from backend_logic import run as backend`) and imports from the logic only `contracts` modules (the types of requests and products). Never imports a family's `run`, `pipeline`, `container` or `helpers`. Resources (store, locks, clock) are prepared in the `lifespan` by `backend.run(PrepareResources(...))` and kept in a local frontend slot (`ResourceSlot`); `tests/gates/test_architecture.py` guarantees the single door. |
 
 Style rule: **do not blindly impose the style's details on the frontend framework**. The frontend's hard rules are dependency direction and not duplicating business; names such as `create_app`/`build_router` are HTTP framework idiom, not a violation of the pipelines vocabulary.
 
@@ -587,7 +587,7 @@ Decoding the HTTP body is also an ingestion boundary. **This template's choice**
 
 HTTP handlers do not resolve domain defaults, do not mutate state, do not apply visibility rules and do not duplicate business rules: that is a logical use case with its own `run`.
 
-The template's `tests/test_architecture.py` guarantees by AST: dependency direction, `run.py` with a real `run` and package imports without network/opening of data.
+The template's `tests/gates/test_architecture.py` guarantees by AST: dependency direction, `run.py` with a real `run` and package imports without network/opening of data.
 
 ---
 
@@ -649,7 +649,7 @@ A repeated typing error can denounce a wrong type, a missing authority or a pack
 - Exercise **real runs**, swapping only unimplemented leaves/boundaries — without rewriting the orchestration inside the test.
 - Meaningful data crossing packages; verify preserved/changed fields, order, handoffs, branches, failures, cancellation.
 - A fake that returns a constant disconnected from the input makes the test vacuously green.
-- A concurrency test without `await` inside the critical section does not observe the lock: rehearse the lock with a holder that waits inside it (see `tests/test_notes_save.py`). Guards also need a test: an import scanner that only read `node.module` passed empty.
+- A concurrency test without `await` inside the critical section does not observe the lock: rehearse the lock with a holder that waits inside it (see `tests/example/test_notes_save.py`). Guards also need a test: an import scanner that only read `node.module` passed empty.
 - Show cases the contract rejects when that clarifies a distinction, including **proportional negative static checks** (swapping nominal IDs/stages must fail in mypy). Do not leave purposely invalid fixtures mixed into production code.
 - Copy/snapshot semantics need to be rehearsed at runtime: a name, type or `Self` neither freezes objects nor guarantees a copy.
 - **Record which links were simulated**, with what premises and which were not yet. The record cannot be verified only against itself.

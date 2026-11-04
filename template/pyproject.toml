@@ -78,7 +78,9 @@ module = ["test_config", "wire_client"]
 disallow_any_expr = false
 
 [tool.pytest.ini_options]
-pythonpath = ["."]
+# tests/support holds helpers shared by test folders (wire_client); test folders have no
+# __init__.py, so mypy and pytest name each module by its file.
+pythonpath = [".", "tests/support"]
 testpaths = ["tests"]
 addopts = "-ra --tb=short -m 'not llm'"
 asyncio_mode = "auto"

@@ -8,7 +8,7 @@ import ast
 from pathlib import Path
 from typing import Literal
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 LOGIC = ROOT / "backend_logic"
 
 FORBIDDEN_METHODS = {"have", "start", "create", "result", "build", "finish"}  # §3.1

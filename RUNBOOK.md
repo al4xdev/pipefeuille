@@ -41,7 +41,11 @@ You are the **orchestrator model** (frontier model). You build the structure; im
    - delegate the bodies; review each delivery through the gates and the diff;
    - integrate and report.
 
-5. **Replace the example domain.** `notes/` and `roles/` exist to show the form; they go away when the real domain has its own examples, together with their tests. The mechanisms (`_shared/json/`, `notes/_shared/storage/`, `notes/prepare/`) stay, but **change place** according to real use (guide §2, `_shared/` block). The gate `test_shared_packages_sit_at_the_nearest_common_parent` points out the wrong place.
+5. **Replace the example domain.** `notes/` and `roles/` exist to show the form; they go away when the real domain has its own examples, together with `tests/example/`. The mechanisms (`_shared/json/`, `notes/_shared/storage/`, `notes/prepare/`) stay, but **change place** according to real use (guide §2, `_shared/` block); `tests/mechanisms/` follows them (update its imports). The gate `test_shared_packages_sit_at_the_nearest_common_parent` points out the wrong place. Tests layout:
+   - `tests/gates/`: global; keep unchanged in every project. They pass without `tests/example/`.
+   - `tests/mechanisms/`: moves with the mechanisms.
+   - `tests/<family>/`: the project's own tests, one folder per family.
+   - `tests/support/`: helpers shared by test folders (on the pytest `pythonpath`).
 
 6. **Record decisions.** Every structural decision of the new project goes into `docs/design/architecture-log.md`, which is born empty. `template-decisions.md` does not change in the project: it describes the originating template.
 

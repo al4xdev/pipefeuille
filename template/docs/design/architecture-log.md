@@ -40,12 +40,12 @@ Absence diagnosis: **(1)** implementation error · **(2)** architectural omissio
 
 - Observation and source: `pdfparse.load()` returns `dict[str, Any]`; mypy reports 4 errors in
   `backend_logic/documents/read/pipeline.py:31` with `disallow_any_expr`.
-- State: rehearsed (real run with synthetic PDF in `tests/test_documents_read.py`).
+- State: rehearsed (real run with synthetic PDF in `tests/documents/test_documents_read.py`).
 - Diagnosis: (2) architectural omission — the skeleton's contract assumed a typed library.
 - Decision and reason: new package `documents/parse/`, whose `pipeline.py` narrows the dict to
   `ParsedPage` with `isinstance`; only `backend_logic.documents.parse.*` is exempted in
   `pyproject.toml`. Discarded: exempting all of `documents.read` (the `Any` would leak into the steps).
-- Evidence needed: clean mypy outside the exemption; `tests/test_config.py` updated with the new
+- Evidence needed: clean mypy outside the exemption; `tests/gates/test_config.py` updated with the new
   exemption; malformed PDF becomes `ValueError`. Does NOT prove that the library handles encrypted PDFs.
 - Later result: —
 ```

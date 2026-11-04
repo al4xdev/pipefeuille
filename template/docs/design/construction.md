@@ -80,7 +80,7 @@ The orchestrator writes the entire tree in real code. Order inside each package,
 **Gates that close Wave 2:**
 
 - `uv run ruff check .`, `uv run ruff format --check .` and `uv run mypy .` **green**;
-- `tests/test_style.py`, `tests/test_architecture.py` and `tests/test_config.py` **green**;
+- `tests/gates/test_style.py`, `tests/gates/test_architecture.py` and `tests/gates/test_config.py` **green**;
 - the behaviour tests fail **only** with `NotImplementedError("package.method")`. This list of reds is the Wave 3 backlog. Any other failure (import, type, fixture) is a skeleton error and is fixed before delegating.
 
 This is the most expensive and the most important wave. A loose contract here becomes, in Wave 3, an implementer who invents.
@@ -121,7 +121,7 @@ Effects: no I/O.
 Failures: stems missing → RuntimeError; naming.run raises NoteValidationError →
   ValueError with `from error` (a misnamed file is corruption, not a client error).
 
-Tests that must pass: uv run pytest tests/test_notes_list.py
+Tests that must pass: uv run pytest tests/example/test_notes_list.py
 Gates that must pass: uv run ruff check . ; uv run mypy .
 
 Forbidden: changing the signature, docstring, contracts.py, container.py, run.py, tests or
@@ -136,7 +136,7 @@ The implementer replies with one of these two formats, and nothing else:
 ```markdown
 ### delivered
 - method: notes.list.admit_names
-- gates: ruff ok · mypy ok · pytest tests/test_notes_list.py: 4 passed
+- gates: ruff ok · mypy ok · pytest tests/example/test_notes_list.py: 4 passed
 ```
 
 ```markdown

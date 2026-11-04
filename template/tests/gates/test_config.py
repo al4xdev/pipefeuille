@@ -8,7 +8,7 @@ pyproject override exempting this module is explained in docs/design/template-de
 import tomllib
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 
 
 def tool_section(name: str) -> dict[str, object]:

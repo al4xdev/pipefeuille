@@ -2,7 +2,7 @@
 
 <!-- FILL IN: project name and purpose. -->
 
-Skeleton in the vertical pipelines style: `backend_logic` (domain, agents, pipelines) and `backend_frontend` (HTTP adaptation). The dependency direction is guarded by `tests/test_architecture.py` and the vocabulary by `tests/test_style.py`. Depth says who uses a package, and what two or more neighbours share lives in the `_shared/` of their common parent. Python 3.15: every top-level import is `lazy` (PEP 810), with a fallback to a normal import described in guide §6.1.
+Skeleton in the vertical pipelines style: `backend_logic` (domain, agents, pipelines) and `backend_frontend` (HTTP adaptation). The dependency direction is guarded by `tests/gates/test_architecture.py` and the vocabulary by `tests/gates/test_style.py`. Depth says who uses a package, and what two or more neighbours share lives in the `_shared/` of their common parent. Python 3.15: every top-level import is `lazy` (PEP 810), with a fallback to a normal import described in guide §6.1.
 
 ## Map
 
@@ -20,9 +20,12 @@ Skeleton in the vertical pipelines style: `backend_logic` (domain, agents, pipel
 | `backend_logic/_shared/json/` | Strict JSON used by storage, LLM roles and the HTTP edge: `decode` (the only boundary with the `Any` of `json.loads`), `encode` and `_shared/validate`. Grouping: `contracts.py` with `JsonValue`, no `run`. |
 | `backend_logic/_shared/note_name/` | Authority of the note name, used by `notes` and `roles`. |
 | `backend_frontend/` | Routes that enter only through `backend_logic/run.py`; resources prepared in the `lifespan`. |
-| `tests/` | Architecture by AST, rehearsals with typed fakes, "start in the middle", concurrency, HTTP edge. |
+| `tests/gates/` | **Global gates, every project keeps them unchanged:** style and folder shape (`test_style.py`), dependency direction (`test_architecture.py`), gate configuration (`test_config.py`). They know only `backend_logic`/`backend_frontend`, never the domain. |
+| `tests/mechanisms/` | Tests of the shipped mechanisms (`_shared/json`, `notes/_shared/storage`); they move with the mechanism when it changes place. |
+| `tests/example/` | Tests of the example domain (`notes`, `roles`, HTTP edge): rehearsals with typed fakes, "start in the middle", concurrency. Deleted together with `notes/` and `roles/`. |
+| `tests/support/` | Helpers shared by test folders (`wire_client.py`, an in-process HTTP client); on the pytest `pythonpath`. |
 
-`notes` and `summarizer` are examples: replace them with the real domain while keeping the form.
+`notes` and `summarizer` are examples: replace them with the real domain while keeping the form. A project's own tests go in one folder per family (`tests/<family>/`), never back into `tests/gates/`.
 
 ## Usage
 
@@ -31,7 +34,7 @@ uv sync
 uv run ruff check .; and uv run ruff format --check .; and uv run mypy .; and uv run pytest
 ```
 
-Linters, formatter, typechecker and tests already come configured in `pyproject.toml`: ruff (rules `E,F,I,N,W,UP,B,C4,SIM`, line 100, `run.py` outside the formatter to preserve the composition ladder), strict mypy (`disallow_any_expr` across the whole project, `Any` only at three registered boundaries, extra checks on; guarded by `tests/test_config.py`) and async pytest with the `llm` marker off. It is project configuration, not editor configuration: keep it.
+Linters, formatter, typechecker and tests already come configured in `pyproject.toml`: ruff (rules `E,F,I,N,W,UP,B,C4,SIM`, line 100, `run.py` outside the formatter to preserve the composition ladder), strict mypy (`disallow_any_expr` across the whole project, `Any` only at three registered boundaries, extra checks on; guarded by `tests/gates/test_config.py`) and async pytest with the `llm` marker off. It is project configuration, not editor configuration: keep it.
 
 ## Documentation
 
