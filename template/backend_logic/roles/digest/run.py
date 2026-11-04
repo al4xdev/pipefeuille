@@ -8,6 +8,20 @@ lazy from .pipeline import Pipe
 
 
 async def run(initial: DigestNotes, *, model: Model) -> Digest:
+    """Summarize several notes at once: one summarizer run per note, in parallel.
+
+    Effects:
+        model: one summarizer call per note, at most eight.
+    Repeat:
+        accumulates: every call repeats all model calls.
+    Loops:
+        over-items: one summarizer task per validated note.
+    Concurrency:
+        free
+    Raises:
+        DigestRejectedError: no notes, more than eight, or repeated names; no model call made.
+        ExceptionGroup: wraps the first SummaryRejectedError; the other calls are cancelled.
+    """
     pipe = (
         Pipe
             .get(initial)

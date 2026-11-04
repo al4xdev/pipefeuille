@@ -15,7 +15,8 @@ This project is born in the readable vertical pipelines style. This file is an i
 
 - The code is the blueprint: real contracts, Containers, signatures and `run` before the logic. Missing logic is `raise NotImplementedError("package.method")`, never an empty success.
 - Fixed vocabulary: `run.py`/`run`, `Pipe`, `Pipe.get(initial)`, `Container`, `self.container`, fluent methods `-> Self`, terminal `materialize`. Forbidden: `have`/`start`/`create`, `result`/`build`/`finish`, `self.context`/`self.state`.
-- **Owner decision:** every `backend_logic` package has exactly `__init__.py` (docstring only, no I/O), `contracts.py`, `container.py`, `pipeline.py`, `run.py`, and no other module. Always start reading from `run.py`/`def run`. `contracts.py` holds the request, the product, the types of the Container fields and of the mutations, ports and errors. Only two folders have another shape: `_shared/` (only `__init__.py`) and the grouping inside it (`__init__.py` + `contracts.py`, no `run`).
+- **Owner decision:** every `backend_logic` package has exactly `contracts.py`, `container.py`, `pipeline.py`, `run.py`, and no other module. No `__init__.py` anywhere in `backend_logic/` or `http_adapter/` (namespace packages). Always start reading from `run.py`/`def run`. `contracts.py` holds the request, the product, the types of the Container fields and of the mutations, ports and errors. Only two folders have another shape: `_shared/` (no module) and the grouping inside it (only `contracts.py`, no `run`).
+- **Owner decision:** every `def run` has a docstring with a one-line summary. A process then declares, in this order, `Effects:`, `Repeat:`, `Loops:`, `Concurrency:` and optionally `Raises:`, each line `<value>` or `<value>: <note>`, with values only from the enums in `tests/support/architecture.py` (never edited in a project). A family declares only its summary. Do not declare what the code shows (children, cases, parallel calls): the tool derives it. Map of the project: `uv run python tests/support/architecture.py` (tree), `--json`, `--html .dumps/architecture.html`. Gate in `tests/gates/test_architecture_graph.py` (template-decisions E1, E2).
 - **Climb:** reading starts at `backend_logic/run.py`. A family declares `type <Family>Request = A | B` and `<Family>Response`, and dispatches with a visible `match` (`assert_never` at the end); every ancestor of a family is a family. A process has a chain; its children are steps. New use case = request named in the package that serves it + unions in the family + `case` in each `run.py` above + one `@overload` at the root.
 - **Owner decision:** `@overload` only in `backend_logic/run.py` (public contract). An intermediate family returns the union, without overload. Whoever needs the exact product calls the process's `run` (`lazy from backend_logic.notes._shared.storage.lock import run as locking`), never the family's; a family's `run` is only imported by the parent's `pipeline.py`. Gate in `tests/gates/test_style.py` (guide §2).
 - A shared mechanism is one package per operation with a readable name (`storage/write/`, `json/decode/`), never a loose module (`files.py`, `jsonvalue.py`).
@@ -52,12 +53,12 @@ The structure belongs to the **frontier model** (the orchestrator); **intermedia
 
 | Artifact | Frontier model (orchestrator) | Intermediate / smaller model (implementer) |
 | --- | --- | --- |
-| `run.py`, `contracts.py`, `container.py`, `__init__.py`, folder structure | writes and changes | does not touch |
+| `run.py` (including its docstring), `contracts.py`, `container.py`, folder structure | writes and changes | does not touch |
 | `pipeline.py`: signature, docstring, method order | writes and changes | does not touch |
 | `pipeline.py`: body of the delegated method | delivers as `raise NotImplementedError("package.method")` | **fills in only this body** |
 | Method tests and fixtures | writes (or approves) | runs; does not change them to make them pass |
 | Gates (`pyproject.toml`) | tightens; loosens only with an owner-approved deviation | runs; never relaxes |
-| `tests/gates/`, `tests/support/deviations.py` | never edits | never edits |
+| `tests/gates/`, `tests/support/deviations.py`, `tests/support/architecture.py` | never edits | never edits |
 | `docs/design/architecture-log.md` | writes entries; a deviation only as `Status: proposed`, `approved` only with the owner's words | does not touch |
 
 Wrong or incomplete contract (missing field, type too wide, undeclared error): the implementer **stops and reports** to the frontier model. Never works around it with `cast`, `# type: ignore`, a new field or an extra import.
@@ -75,7 +76,7 @@ Never relax a gate to get green. Green gates do not prove a finished product: re
 
 The ruff (lint and format), mypy and pytest configuration lives in `pyproject.toml` and **is part of the template**: a new project is born with it ready. Do not create parallel `ruff.toml`, `mypy.ini` or `setup.cfg`, do not pass flags that work around it, and do not loosen it: tightening is free, loosening is a deviation.
 
-`tests/gates/` and `tests/support/deviations.py` are copied from the template and **never edited** in the project, not even to add an exception: the gates read the exceptions from `architecture-log.md`. Nothing may stop a gate from running either: no `exclude` of code in ruff or mypy, no `--ignore`/`--deselect`/`-k` in pytest options, no collection hook in a `conftest.py` (all gated). A gate that is wrong is a report to the owner, not a local fix.
+`tests/gates/`, `tests/support/deviations.py` and `tests/support/architecture.py` are copied from the template and **never edited** in the project, not even to add an exception or an enum value: the gates read the exceptions from `architecture-log.md`. Nothing may stop a gate from running either: no `exclude` of code in ruff or mypy, no `--ignore`/`--deselect`/`-k` in pytest options, no collection hook in a `conftest.py` (all gated). A gate that is wrong is a report to the owner, not a local fix.
 
 ## Deviations (owner decision)
 

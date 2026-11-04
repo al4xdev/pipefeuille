@@ -70,7 +70,7 @@ The orchestrator writes the entire tree in real code. Order inside each package,
    ```
 
    `get` and `materialize` are normally already written by the orchestrator: they are short and define the Container's contract.
-4. **`run.py`:** the real composition, with order, branches, locks, `TaskGroup` and `await` on its own line, written by hand (the formatter does not touch `run.py`).
+4. **`run.py`:** the real composition, with order, branches, locks, `TaskGroup` and `await` on its own line, written by hand (the formatter does not touch `run.py`). Its docstring is the package's summary line and, in a process, the closed sections `Effects`, `Repeat`, `Loops`, `Concurrency`, `Raises` (guide §2.2). Write them from the survey of wave 1, not from the bodies: a skeleton already declares the effects it will have. Then generate the map (`uv run python tests/support/architecture.py --html .dumps/architecture.html`) and review it with the owner before delegating; read every alert.
 5. **Families:** `type <Family>Request` and `<Family>Response`, `match`/`assert_never`, and one `@overload` per case in `backend_logic/run.py`.
 6. **Tests**, written now and not later:
    - one behaviour test per delegated method, using "start in the middle" (guide §12.4): prepares a valid Container at that step, calls the method and checks the written fields and the failures;

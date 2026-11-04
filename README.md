@@ -28,12 +28,12 @@ The structure belongs to the frontier model. The intermediate and smaller models
 
 | Artifact | Frontier model | Intermediate / smaller model |
 | --- | --- | --- |
-| `run.py` (composition, `match`, `TaskGroup`, locks) | writes and changes | does not touch |
+| `run.py` (composition, `match`, `TaskGroup`, locks; docstring with closed sections) | writes and changes | does not touch |
 | `contracts.py` (requests, products, errors, `Literal`, `NewType`, `Protocol`) | writes and changes | does not touch |
 | `container.py` (fields and types) | writes and changes | does not touch |
 | `pipeline.py`: signature, "Require …; set …" docstring, method order | writes and changes | does not touch |
 | `pipeline.py`: **body of the delegated method** | delivers as `raise NotImplementedError("package.method")` | **fills in only this body** |
-| `__init__.py`, folder structure | writes | does not touch |
+| Folder structure (no `__init__.py`) | writes | does not touch |
 | Method tests and fixtures | writes (or approves) | runs; does not change them to make them pass |
 | Gates (`pyproject.toml`: ruff, mypy, pytest) | configures | runs; never relaxes |
 

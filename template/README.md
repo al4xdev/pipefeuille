@@ -6,6 +6,16 @@ Skeleton in the vertical pipelines style: `backend_logic` (domain, agents, pipel
 
 ## Map
 
+The current tree of packages is generated from the code, never drawn by hand. Each package's summary, effects, repeat, loops and concurrency come from the docstring of its `def run`; the calls, cases, loops, locks and parallel calls come from the source:
+
+```fish
+uv run python tests/support/architecture.py                                  # tree, for agents
+uv run python tests/support/architecture.py --json                           # the whole graph
+uv run python tests/support/architecture.py --html .dumps/architecture.html  # page for humans
+```
+
+The table below says what the shipped example **teaches**; it goes away with the example domain.
+
 | Path | What it demonstrates |
 | --- | --- |
 | `backend_logic/run.py` | **Start reading here.** Single door: `match` over `BackendRequest` descends to each family; each family does the same down to the leaf. |
@@ -20,10 +30,10 @@ Skeleton in the vertical pipelines style: `backend_logic` (domain, agents, pipel
 | `backend_logic/_shared/json/` | Strict JSON used by storage, LLM roles and the HTTP edge: `decode` (the only boundary with the `Any` of `json.loads`), `encode` and `_shared/validate`. Grouping: `contracts.py` with `JsonValue`, no `run`. |
 | `backend_logic/_shared/note_name/` | Authority of the note name, used by `notes` and `roles`. |
 | `http_adapter/` | Routes that enter only through `backend_logic/run.py`; resources prepared in the `lifespan`. |
-| `tests/gates/` | **Global gates, every project keeps them unchanged:** style and folder shape (`test_style.py`), dependency direction (`test_architecture.py`), gate configuration (`test_config.py`), owner-approved exceptions only (`test_deviations.py`). Never edited in a project: exceptions come from approved entries of `docs/design/architecture-log.md` (`AGENTS.md`, "Deviations"). They know only `backend_logic`/`http_adapter`, never the domain. |
+| `tests/gates/` | **Global gates, every project keeps them unchanged:** style and folder shape (`test_style.py`), dependency direction (`test_architecture.py`), gate configuration (`test_config.py`), owner-approved exceptions only (`test_deviations.py`), closed `run` docstrings and a complete graph (`test_architecture_graph.py`). Never edited in a project: exceptions come from approved entries of `docs/design/architecture-log.md` (`AGENTS.md`, "Deviations"). They know only `backend_logic`/`http_adapter`, never the domain. |
 | `tests/mechanisms/` | Tests of the shipped mechanisms (`_shared/json`, `notes/_shared/storage`); they move with the mechanism when it changes place. |
 | `tests/example/` | Tests of the example domain (`notes`, `roles`, HTTP edge): rehearsals with typed fakes, "start in the middle", concurrency. Deleted together with `notes/` and `roles/`. |
-| `tests/support/` | Helpers shared by test folders (`wire_client.py`, an in-process HTTP client; `deviations.py`, the reader of owner-approved exceptions in the architecture log); on the pytest `pythonpath`. |
+| `tests/support/` | Helpers shared by test folders (`wire_client.py`, an in-process HTTP client; `deviations.py`, the reader of owner-approved exceptions in the architecture log; `architecture.py`, the closed docstring vocabulary and the graph tool); on the pytest `pythonpath` and the mypy `mypy_path`. `deviations.py` and `architecture.py` are never edited in a project. |
 
 `notes` and `summarizer` are examples: replace them with the real domain while keeping the form. A project's own tests go in one folder per family (`tests/<family>/`), never back into `tests/gates/`.
 

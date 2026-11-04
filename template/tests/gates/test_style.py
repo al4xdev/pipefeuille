@@ -17,14 +17,16 @@ FORBIDDEN_METHODS = {"have", "start", "create", "result", "build", "finish"}  # 
 CHILD_INTERNALS = {"pipeline", "container", "helpers"}  # §3.2: parent imports run/contracts
 # §2: the file names are the map. A reader who knows nothing about the domain still knows
 # where every package starts (run.py), what it holds (container.py) and what it trades
-# (contracts.py). No other module name exists in backend_logic.
-PACKAGE_FILES = ("__init__.py", "contracts.py", "container.py", "pipeline.py", "run.py")
+# (contracts.py). No other module name exists in backend_logic, and no `__init__.py`: folders
+# are namespace packages, and what a package does is the docstring of its `def run`
+# (template-decisions A1).
+PACKAGE_FILES = ("contracts.py", "container.py", "pipeline.py", "run.py")
 # §2 (_shared): a package used by two or more neighbours lives in the `_shared/` of their nearest
-# common parent. `_shared/` itself only groups (docstring); a grouping inside it (json/,
+# common parent. `_shared/` itself only groups (no module); a grouping inside it (json/,
 # storage/) holds the values every operation trades, and each operation is a package.
 SHARED = "_shared"
-SHARED_FILES = ("__init__.py",)
-GROUPING_FILES = ("__init__.py", "contracts.py")
+SHARED_FILES: tuple[str, ...] = ()
+GROUPING_FILES = ("contracts.py",)
 
 
 type FolderKind = Literal["shared", "grouping", "package"]
@@ -217,15 +219,19 @@ def test_shape_scanner_reports_every_kind(tmp_path: Path) -> None:
         tmp_path,
         {
             **five,
-            "backend_logic/_shared/__init__.py": "",
             "backend_logic/_shared/contracts.py": "",  # _shared only groups
-            "backend_logic/_shared/empty/__init__.py": "",  # grouping with nothing inside
-            "backend_logic/_shared/empty/contracts.py": "",
+            "backend_logic/_shared/empty/contracts.py": "",  # grouping with nothing inside
+            "backend_logic/_shared/empty/__init__.py": "",
+            "backend_logic/old/__init__.py": "",  # a package with the retired module
+            **{f"backend_logic/old/{name}": "" for name in PACKAGE_FILES},
         },
     )
     assert shape_violations(tmp_path / "backend_logic") == [
-        "backend_logic/_shared: shared has ['__init__.py', 'contracts.py']",
+        "backend_logic/_shared: shared has ['contracts.py']",
+        "backend_logic/_shared/empty: grouping has ['__init__.py', 'contracts.py']",
         "backend_logic/_shared/empty: empty grouping",
+        "backend_logic/old: package has ['__init__.py', 'container.py', 'contracts.py', "
+        "'pipeline.py', 'run.py']",
     ]
 
 
@@ -483,14 +489,15 @@ def test_shared_packages_sit_at_the_nearest_common_parent() -> None:
     assert not placement_violations(LOGIC)
 
 
-def test_package_init_is_a_docstring_without_startup() -> None:
-    # §2: __init__.py identifies the package; no I/O, config or startup on import.
-    violations: list[str] = []
-    for init in LOGIC.rglob("__init__.py"):
-        tree = ast.parse(init.read_text(encoding="utf-8"))
-        if ast.get_docstring(tree) is None or len(tree.body) != 1:
-            violations.append(str(init.relative_to(ROOT)))
-    assert not violations
+def test_no_package_has_an_init_module() -> None:
+    # A1: folders are namespace packages. An `__init__.py` would be a second place for the
+    # package description (the `run` docstring holds it) and a place for import-time startup.
+    found = sorted(
+        str(path.relative_to(ROOT))
+        for folder in (LOGIC, ROOT / "http_adapter")
+        for path in folder.rglob("__init__.py")
+    )
+    assert not found, f"describe the package in its `def run` docstring instead: {found}"
 
 
 def test_every_pipe_follows_the_vocabulary() -> None:

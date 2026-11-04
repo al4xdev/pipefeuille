@@ -17,12 +17,15 @@ The complete guide is in [vertical-pipelines.md](vertical-pipelines.md); the nam
 
 ## A. Shape of the tree
 
-### A1. Five files in every folder, reading starts at `run.py`
+### A1. Four files in every folder, no `__init__.py`, reading starts at `run.py`
 
-- **Rule:** every `backend_logic` package has exactly `__init__.py` (docstring only), `contracts.py`, `container.py`, `pipeline.py` and `run.py`, and no other module. All reading starts at `run.py`/`def run`. The only exceptions are the two forms of A5: `_shared/` (only `__init__.py`) and the grouping inside it (`__init__.py` and `contracts.py`).
-- **Why:** in an earlier version, `backend_logic/` had no `run.py`; `codec/jsonvalue.py`, `storage/files.py` and `storage/locks.py` were loose modules with names that do not say what they do; `notes/` had `contracts.py` without `run`. The owner, reading, did not know where to start. With fixed names, whoever does not know the domain still knows where the package runs, what it holds and what it exchanges.
-- **Gate:** `tests/gates/test_style.py::test_every_folder_has_the_files_its_kind_requires` (with self-test in `::test_shape_scanner_reports_every_kind`), `::test_no_module_outside_the_mandatory_names`, `::test_package_init_is_a_docstring_without_startup`; `tests/gates/test_architecture.py::test_run_modules_contain_a_real_run_definition`.
-- **Does not prove:** that the content of each file is in the right file (a domain type forgotten in `pipeline.py`, for example).
+- **Rule:** every `backend_logic` package has exactly `contracts.py`, `container.py`, `pipeline.py` and `run.py`, and no other module. There is no `__init__.py` anywhere in `backend_logic/` or `http_adapter/`: folders are namespace packages (PEP 420). What a package does is the docstring of its `def run` (E1). All reading starts at `run.py`/`def run`. The only exceptions are the two forms of A5: `_shared/` (no module) and the grouping inside it (only `contracts.py`).
+- **Why:**
+  - In an earlier version, `backend_logic/` had no `run.py`; `codec/jsonvalue.py`, `storage/files.py` and `storage/locks.py` were loose modules with names that do not say what they do; `notes/` had `contracts.py` without `run`. The owner, reading, did not know where to start. With fixed names, whoever does not know the domain still knows where the package runs, what it holds and what it exchanges.
+  - The `__init__.py` held a one-line docstring that the `run` docstring would repeat once E1 put the description there. Two places for one sentence drift apart; and an `__init__.py` is also the one module that runs on import, where startup code tends to land.
+- **Measured:** on a copy with every `__init__.py` removed, pytest passed except the shape gate, and `lazy from .contracts import …` resolved as namespace packages. mypy stopped at once ("Duplicate module named `container`"); with `explicit_package_bases = true`, `backend_logic` and `http_adapter` were clean and the only errors were in `tests/`, because test modules are now named from the root (`tests.gates.test_config`). `mypy_path = ["tests/support"]` keeps the support modules named by file (`wire_client`, `deviations`), as on the pytest `pythonpath`.
+- **Gate:** `tests/gates/test_style.py::test_every_folder_has_the_files_its_kind_requires` (with self-test in `::test_shape_scanner_reports_every_kind`, which includes a package with the retired `__init__.py`), `::test_no_module_outside_the_mandatory_names`, `::test_no_package_has_an_init_module`; `tests/gates/test_architecture.py::test_run_modules_contain_a_real_run_definition`; `tests/gates/test_config.py::test_mypy_gate_keeps_any_out_of_expressions_everywhere` requires `explicit_package_bases` and the exact `mypy_path`.
+- **Does not prove:** that the content of each file is in the right file (a domain type forgotten in `pipeline.py`, for example). Nor that no other folder of the same name sits on `sys.path`: namespace packages merge silently, which is why `pythonpath` and `mypy_path` are fixed.
 
 ### A2. Climb by families: the root is the single door
 
@@ -41,14 +44,14 @@ The complete guide is in [vertical-pipelines.md](vertical-pipelines.md); the nam
 
 ### A4. A mechanism is one package per operation
 
-- **Rule:** `_shared/json/{decode,encode}` + `_shared/json/_shared/validate` and `notes/_shared/storage/{read,write,scan,lock}` + `storage/_shared/path`, each operation with the five files. Never `files.py`, `utils.py`, `jsonvalue.py`.
+- **Rule:** `_shared/json/{decode,encode}` + `_shared/json/_shared/validate` and `notes/_shared/storage/{read,write,scan,lock}` + `storage/_shared/path`, each operation with the four files. Never `files.py`, `utils.py`, `jsonvalue.py`.
 - **Why:** same reason as A1; and a folder name such as `storage/write/` says what happens without opening the file. Alternative discarded: tolerating loose modules for mechanisms.
 - **Gate:** the same as A1.
 - **Does not prove:** that the split into operations is the best one for another mechanism; that is design.
 
 ### A5. Depth says who uses it; shared lives in `_shared/`
 
-- **Rule:** a package used by a single consumer stays inside it. A package used by two or more neighbours, that has its own contract and is **not a use case**, lives in the `_shared/` of their nearest common ancestor. The `_shared/` folder exists even when it holds a single package. `_shared/` is never a family, is private to the parent and only has `__init__.py`; a grouping inside it (`json/`, `storage/`) has `__init__.py` and `contracts.py`, without `run`. Importing only the types of a package counts as use. Guide §2.
+- **Rule:** a package used by a single consumer stays inside it. A package used by two or more neighbours, that has its own contract and is **not a use case**, lives in the `_shared/` of their nearest common ancestor. The `_shared/` folder exists even when it holds a single package. `_shared/` is never a family, is private to the parent and has no module of its own; a grouping inside it (`json/`, `storage/`) has only `contracts.py`, without `run`. Importing only the types of a package counts as use. Guide §2.
 - **Why:**
   - The name authority lived only in `save.validate_name`. `save/decode` accepted `"../escaped"` and `list` returned raw stems as `str`. The policy was duplicable, and its place in the tree did not say who used it. A rejected name coming from disk is corruption (`ValueError`, 500), not a client error (`invalid_name`, 422).
   - Later, with the shared package next to the use cases (`notes/name/` beside `list/` and `save/`), the tree did not distinguish infrastructure from use case. And the mechanism families (A3) had no caller.
@@ -115,7 +118,7 @@ The complete guide is in [vertical-pipelines.md](vertical-pipelines.md); the nam
 
 - **Rule:** strict mypy with `disallow_any_explicit`, `disallow_any_unimported`, `disallow_any_expr` (whole project, tests included), `warn_unreachable`, `strict_bytes` and the extra codes of `pyproject.toml`. Three modules exempt from `disallow_any_expr`, each narrowing the value before returning it:
   - `backend_logic._shared.json.decode.*`: the `Any` of `json.loads`;
-  - `test_config`: the `dict[str, Any]` of `tomllib`;
+  - `tests.gates.test_config`: the `dict[str, Any]` of `tomllib`;
   - `wire_client`: Starlette's `TestClient` reaches mypy as `Any` (verified with `reveal_type`).
 - **Why:** the same as C1. The typed ways out were looked for before exempting: routes through `router.add_api_route` (FastAPI's decorators are typed with `Any`), response bodies annotated as `JsonValue`, fakes with `@override`.
 - **Gate:** `tests/gates/test_config.py::test_mypy_gate_keeps_any_out_of_expressions_everywhere` fails if mypy loses any strict flag or extra error code, if an override does anything but lift `disallow_any_expr`, or if an exemption appears that is neither one of these three nor an owner-approved `mypy:<module>` entry (D8). `::test_ruff_rules_are_never_switched_off` fails on a dropped rule, a longer line or any `ignore`/`per-file-ignores`.
@@ -174,14 +177,14 @@ The complete guide is in [vertical-pipelines.md](vertical-pipelines.md); the nam
 
 - **Rule:** each scanner in `tests/gates/test_style.py` and `tests/gates/test_architecture.py` has a test that runs it against a synthetic violating source.
 - **Why:** an import scanner that only read `node.module` passed empty without seeing `from X import a`.
-- **Gate:** `test_style_scanner_reports_every_rule`, `test_shape_scanner_reports_every_kind`, `test_placement_scanner_reports_every_rule`, `test_closed_name_scanner_reports_bare_str`, `test_eager_import_scanner_reports_only_top_level_eager_imports`, `test_internal_import_scanner_sees_every_import_form`, `test_log_reader_grants_only_owner_approved_entries`, `test_escape_hatch_scanner_ignores_strings`, `test_collection_hook_scanner_reports_every_hook`.
+- **Gate:** `test_style_scanner_reports_every_rule`, `test_shape_scanner_reports_every_kind`, `test_placement_scanner_reports_every_rule`, `test_closed_name_scanner_reports_bare_str`, `test_eager_import_scanner_reports_only_top_level_eager_imports`, `test_internal_import_scanner_sees_every_import_form`, `test_log_reader_grants_only_owner_approved_entries`, `test_escape_hatch_scanner_ignores_strings`, `test_collection_hook_scanner_reports_every_hook`, `test_graph_scanner_reports_every_violation`, `test_docstring_parser_keeps_notes_and_continuations`.
 - **Does not prove:** semantics. A style gate does not know whether a docstring tells the truth nor whether a `validate_*` fixes in secret.
 
 ### D7. Tests are split by lifetime: gates, mechanisms, example
 
 - **Rule:** `tests/gates/` holds the global gates (style, architecture, config) that every project keeps unchanged; they read only `backend_logic`/`http_adapter` and mention the domain only inside synthetic self-test strings. `tests/mechanisms/` holds the tests of the shipped mechanisms and moves with them. `tests/example/` holds the example-domain tests and is deleted with `notes/` and `roles/`. A project's own tests go in `tests/<family>/`. Helpers shared by test folders live in `tests/support/`, which is on the pytest `pythonpath`. Test folders have no `__init__.py`.
 - **Why:** with every test flat in `tests/`, nothing told a new project which files survive a domain swap; an agent could delete a gate together with the example, or keep example tests that pin the old domain.
-- **Measured:** a copy of the template without `tests/example/` gives a clean mypy and 62 passing tests (gates and mechanisms), against 129 with it.
+- **Measured:** a copy of the template without `tests/example/` gives a clean mypy and 68 passing tests (gates and mechanisms), against 135 with it.
 - **Gate:** none mechanical; the measurement above is the evidence. Re-run it after changing a gate.
 - **Does not prove:** that a future gate stays domain-free; review a new gate for imports of `notes`/`roles`.
 
@@ -192,3 +195,30 @@ The complete guide is in [vertical-pipelines.md](vertical-pipelines.md); the nam
 - **Measured:** on a copy of the template, three self-granted deviations (an override of `backend_logic.notes.*`, a top-level `import os` with `# type: ignore[misc]`) failed `test_config`, `test_style` and `test_deviations` (3 failed). Adding a `Status: proposed` entry listing all three tokens still gave 3 failed; turning it into `approved` with a dated, quoted owner approval gave all gates green. A second copy tried the exits that switch a gate off without touching it: `tools` added to ruff's `extend-exclude` and mypy's `exclude`, a `cast` in `tools/hack.py`, a root `conftest.py` with `pytest_collection_modifyitems`, and `--ignore=tests/example` in `addopts`. Each failed a gate. A third copy tried a root `mypy.ini` and a `backend_logic/ruff.toml` (both take precedence over `pyproject.toml`), `from typing import cast as narrow` plus a suppression written without spaces in `http_adapter/`, an eager import wrapped in a module-level `try`, and an approved entry hidden inside a multi-line HTML comment together with its override. Each failed a gate (4 failed).
 - **Gate:** `tests/gates/test_deviations.py` (`::test_log_reader_grants_only_owner_approved_entries` self-test: fenced, proposed, unquoted and unknown-token entries grant nothing; `::test_architecture_log_is_well_formed`; `::test_escape_hatches_only_where_the_owner_approved`, over every `.py` outside dot folders; `::test_no_conftest_can_drop_a_gate`), `tests/gates/test_config.py` (also `::test_pytest_collects_every_test_folder`, `::test_pyproject_is_the_only_tool_configuration` and the exact ruff/mypy excludes), `tests/gates/test_style.py::test_every_top_level_import_is_lazy`. Reader in `tests/support/deviations.py`.
 - **Does not prove:** that the quoted words were really the owner's. An agent can still forge an approval; the gate only makes forging an explicit, reviewable lie instead of a quiet edit. Nor does it catch a rule without a token (a skipped review, a JSON parser outside the decoder): those stay with the owner's review of the diff.
+
+---
+
+## E. The architecture documents itself
+
+### E1. The `def run` docstring: a summary and closed sections
+
+- **Rule:** every `def run` has a Google-style docstring. The first line is the summary of the package; free paragraphs may follow. A process then declares, in this order, `Effects:`, `Repeat:`, `Loops:`, `Concurrency:` and optionally `Raises:`. Each line of a section is `<value>` or `<value>: <note>`, and the value must be a member of the enums in `tests/support/architecture.py`:
+  - `Effects` (one or more): `pure` (only alone), `reads`, `writes`, `network`, `model`, `time`;
+  - `Repeat` (exactly one, the worst case over the requests it serves): `safe`, `overwrites`, `fails`, `accumulates`;
+  - `Loops` (exactly one, about the body of `run`): `none`, `over-items`, `capped` (note required: the limit);
+  - `Concurrency` (exactly one): `free`, `locks-inside`, `caller-locks` (note required: which lock);
+  - `Raises`: exception names a caller may need to handle.
+
+  A family declares only its summary: its effects and repeat are derived from its cases. The enums are not edited in a project; a new value is a change to the cookiebook (RUNBOOK, task C).
+- **Why:** the owner wanted the architecture read as a diagram that a tool generates, not as a tree written by hand in the README, and wanted what the tree cannot show: whether a package writes, calls a model, may be repeated, takes a lock or loops. Free text would let each model improvise its own words ("idempotent-ish", "mostly pure"); a closed set, checked by a test, does not. Everything the code already shows (children and their order, `match` cases, `TaskGroup`, `async with`, loops, ports, `NotImplementedError`) is derived, never declared, so there is no second source of truth.
+- **Cross-checks against the code:** `pure` ⇒ no keyword-only port and `Repeat: safe`; `Loops: none` ⇔ no `for`/`while`/comprehension in `run`; `over-items` forbids a `while`, `capped` needs one; `locks-inside` ⇔ `async with <alias>.run(...)` in `run`; a process declares every non-pure effect of the packages it calls; every `*Error` its own `contracts.py` defines is in `Raises`, and every name in `Raises` is a builtin exception or is defined in some `contracts.py`.
+- **Measured:** on a copy, each of nine mutations failed exactly one gate (three for a reintroduced `__init__.py`): a value outside the enum, an invented section, a `for` under `Loops: none`, the lock of `save` declared `free`, `pure` on a package with a port, a contract error removed from `Raises`, an `__init__.py` put back, an enum member added, a docstring removed.
+- **Gate:** `tests/gates/test_architecture_graph.py::test_every_run_docstring_uses_only_the_closed_vocabulary`, `::test_the_closed_vocabulary_is_the_template_one` (pins the enum values), with the self-tests `::test_graph_scanner_reports_every_violation` and `::test_docstring_parser_keeps_notes_and_continuations`.
+- **Does not prove:** that a declared value tells the truth where the code cannot be read: `Repeat`, `reads` against `writes`, `network`, `time` and the notes stay with the orchestrator's review. The cross-check of effects only climbs through calls the graph sees (`<alias>.run(...)`).
+
+### E2. The graph is generated from the code
+
+- **Rule:** `uv run python tests/support/architecture.py` prints the package tree with each package's kind, effects, repeat, loops and concurrency, and its calls (marked `loop`, `parallel`, `lock`, and with the request types a family dispatches). `--json` prints the whole graph; `--html <file>` writes a self-contained page (inline SVG, no network) where hovering a package shows its docstring, request → product, ports and sections. Generate the page under `.dumps/`; it is not versioned. The tool also lists **alerts**: a call made inside a loop to a package whose `Repeat` is not `safe`. An alert does not fail a gate; it asks the reader to confirm that the repetition is intended (in the template, `roles/digest` → `roles/summarizer`: one model call per note, by design).
+- **Why:** a tree written by hand in the README goes stale at the first new package. The agent that needs the map calls the tool and gets the current one; the human gets a diagram that is always complete.
+- **Gate:** `tests/gates/test_architecture_graph.py::test_every_package_is_reached_from_the_root` (a package no call reaches is dead code or a call the graph cannot see), `::test_the_page_shows_every_node_and_edge` (also: no `http://`/`https://` in the page). Verified by eye in a browser: layout, hover card and highlighted edges.
+- **Does not prove:** calls made other than through `<alias>.run(...)`; the layout's readability for a much larger tree.

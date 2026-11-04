@@ -24,6 +24,9 @@ MYPY_FLAGS = (
     "disallow_any_expr",
     "warn_unreachable",
     "strict_bytes",
+    # A1: no __init__.py, so modules are named from the root; without this, two `run.py`
+    # files collide as the same module and mypy stops before checking anything.
+    "explicit_package_bases",
 )
 MYPY_ERROR_CODES = {
     "ignore-without-code",
@@ -41,7 +44,7 @@ MYPY_ERROR_CODES = {
 # The template's three Any boundaries (C2). The json decoder is matched by suffix so it may
 # move with the mechanism (guide §2, `_shared/` block) without a gate edit.
 TEMPLATE_BOUNDARY_SUFFIX = "_shared.json.decode.*"
-TEMPLATE_TEST_BOUNDARIES = {"test_config", "wire_client"}
+TEMPLATE_TEST_BOUNDARIES = {"tests.gates.test_config", "wire_client"}
 
 
 def tool_section(name: str) -> dict[str, object]:
@@ -134,6 +137,8 @@ def test_mypy_gate_keeps_any_out_of_expressions_everywhere() -> None:
     assert strings(mypy["enable_error_code"]) >= MYPY_ERROR_CODES
     # Code is never excluded from the checker, and no global switch hides errors.
     assert strings(mypy["exclude"]) == {"^\\.data/", "^\\.dumps/"}
+    # Another root would rename modules and slip them past the override names below.
+    assert strings(mypy["mypy_path"]) == {"tests/support"}
     hiding = {
         "ignore_errors",
         "ignore_missing_imports",

@@ -66,6 +66,11 @@ enable_error_code = [
     "deprecated",
 ]
 exclude = ["^\\.data/", "^\\.dumps/"]
+# Folders have no __init__.py (template-decisions A1): every module is named from the project
+# root (backend_logic.notes.save.run), and tests/support is a root of its own, as on the pytest
+# pythonpath.
+explicit_package_bases = true
+mypy_path = ["tests/support"]
 
 # _shared/json/decode is the one boundary that contains the library's Any (json.loads and its hooks).
 [[tool.mypy.overrides]]
@@ -74,9 +79,10 @@ disallow_any_expr = false
 
 # tomllib returns dict[str, Any]; the config test narrows it with isinstance.
 # Starlette's TestClient reaches mypy as Any; wire_client wraps it in a typed client.
-# Test modules have no package, so mypy names them by file (test_config, not tests.test_config).
+# Test modules are named from the root (tests.gates.test_config); tests/support modules by file
+# (wire_client), because tests/support is on mypy_path.
 [[tool.mypy.overrides]]
-module = ["test_config", "wire_client"]
+module = ["tests.gates.test_config", "wire_client"]
 disallow_any_expr = false
 
 [tool.pytest.ini_options]

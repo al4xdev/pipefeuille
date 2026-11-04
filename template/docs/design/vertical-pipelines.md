@@ -29,13 +29,12 @@ Clean Code, Clean Architecture, DRY or immutability are not applied out of oblig
 
 ```text
 notes/save/
-├── __init__.py     # one-line docstring; no I/O, config or startup on import
 ├── contracts.py    # types that go in and out, types of the Container fields, ports, errors
 ├── container.py    # @dataclass Container: fixed shape, declared empty fields (None or typed empty)
 ├── pipeline.py     # class Pipe: get(), transformations that return Self, materialize()
-├── run.py          # def run / async def run: the visible composition, public entry
+├── run.py          # def run / async def run: the visible composition, public entry;
+│                   # its docstring says what the package is (summary + closed sections)
 └── encode/         # child: another complete package, with its own Container
-    ├── __init__.py
     ├── contracts.py
     ├── container.py
     ├── pipeline.py
@@ -48,9 +47,9 @@ notes/save/
 | `contracts.py` | The types the package exchanges and keeps: the request that comes in (`SaveNote`), the product that goes out (`SavedNote`), the types of the Container fields and of the mutations (`CurrentRead`, `NoteDocument`), `Protocol`s of ports and errors. Each type lives in the package that produces or admits it (`NoteName` in `_shared/note_name/`, `NoteRecord` in `notes/save/`). | An HTTP DTO, a bag of types for the whole project, a place for logic. |
 | `container.py` | Fixed local state, filled progressively. It is also the boundary for "start in the middle" fixtures. | Configuration, megacontext, public DTO. |
 | `pipeline.py` | `Pipe` and its transformation methods. | A place to hide the sequence; the order stays in `run`. |
-| `__init__.py` | Identifies the package. | A place for startup, config reading, connection or plugin. |
+There is no `__init__.py`: folders are namespace packages, and what a package is lives in the docstring of its `def run` ([§2.2](#22-the-run-docstring-and-the-generated-map)), so nothing runs on import and the description has one place.
 
-**The five names are mandatory in every `backend_logic` package, and no other module name exists** (owner decision of this template; see [template-decisions.md](template-decisions.md)). The reason is readability: whoever opens a folder knowing nothing about the domain — what is `codec`? what does `jsonvalue` do? — still knows where to start (`run.py`, `def run`), what the package keeps (`container.py`) and what it exchanges (`contracts.py`). A shared mechanism does not become a loose module (`files.py`, `locks.py`, `jsonvalue.py`): it becomes one package per operation, with a readable name (`storage/write/`, `storage/lock/`, `json/decode/`). The only two folders that are not complete packages are `_shared/` and the groupings inside it (below). `tests/gates/test_style.py` guarantees the shape of each kind of folder and the absence of any other module.
+**The four names are mandatory in every `backend_logic` package, and no other module name exists** (owner decision of this template; see [template-decisions.md](template-decisions.md)). The reason is readability: whoever opens a folder knowing nothing about the domain — what is `codec`? what does `jsonvalue` do? — still knows where to start (`run.py`, `def run`), what the package keeps (`container.py`) and what it exchanges (`contracts.py`). A shared mechanism does not become a loose module (`files.py`, `locks.py`, `jsonvalue.py`): it becomes one package per operation, with a readable name (`storage/write/`, `storage/lock/`, `json/decode/`). The only two folders that are not complete packages are `_shared/` and the groupings inside it (below). `tests/gates/test_style.py` guarantees the shape of each kind of folder and the absence of any other module.
 
 **Depth says who uses it; `_shared/` says it is shared.** The tree is the architecture, and a package's **place** declares who uses it:
 
@@ -100,9 +99,9 @@ Three folder shapes, and only three:
 
 | Folder | Files | What it is |
 | --- | --- | --- |
-| package | the five | family, process or step; has `run` |
-| `_shared/` | only `__init__.py` (docstring) | shelf; not a code package |
-| grouping (child of `_shared/` without `run.py`) | `__init__.py` and `contracts.py` | gathers the operations of a mechanism (`json/`, `storage/`) and keeps the value they all exchange (`JsonValue`, `FileStore`); must have at least one subpackage |
+| package | the four | family, process or step; has `run` |
+| `_shared/` | none | shelf; not a code package |
+| grouping (child of `_shared/` without `run.py`) | only `contracts.py` | gathers the operations of a mechanism (`json/`, `storage/`) and keeps the value they all exchange (`JsonValue`, `FileStore`); must have at least one subpackage |
 
 Rules of `_shared/`, all checked by `tests/gates/test_style.py`:
 
@@ -215,6 +214,19 @@ class Pipe:
 
 ```python
 def run(initial: ListNotes, *, store: FileStore) -> NoteNames:
+    """List the names of the stored notes, sorted.
+
+    Effects:
+        reads: the entries of the notes directory, without opening any file.
+    Repeat:
+        safe
+    Loops:
+        none
+    Concurrency:
+        free: a note saved meanwhile may or may not appear.
+    Raises:
+        ValueError: a file in the notes directory has an invalid name; listing fails loudly.
+    """
     return (
         Pipe
             .get(initial)
@@ -227,6 +239,30 @@ def run(initial: ListNotes, *, store: FileStore) -> NoteNames:
 ```
 
 The template in `backend_logic/notes/` contains this complete example, an asynchronous process with children, lock, commit and receipt (`save/`), the lifetime resources (`prepare/`), the disk mechanism in `notes/_shared/storage/` and the family that dispatches among them (`notes/run.py`). The name authority is in `backend_logic/_shared/note_name/`, because `roles` also uses it. Path confinement and I/O do not live in `list`: they belong to `storage/_shared/path` and `storage/scan`, called by `scanning.run(ScanDirectory(...))` (`lazy from backend_logic.notes._shared.storage.scan import run as scanning`).
+
+### 2.2. The `run` docstring and the generated map
+
+The docstring of `def run` is the one place that says what a package is. Its first line is the summary; free paragraphs may follow. A **process** then declares, in this order, only what the code cannot show, and only with closed values (enums in `tests/support/architecture.py`, never edited in a project):
+
+| Section | Values | Count | Checked against the code |
+| --- | --- | --- | --- |
+| `Effects:` | `pure`, `reads`, `writes`, `network`, `model`, `time` | one or more; `pure` alone | `pure` ⇒ no keyword-only port; every non-pure effect of a called package is declared too |
+| `Repeat:` | `safe`, `overwrites`, `fails`, `accumulates` | exactly one: the worst case | `pure` ⇒ `safe` |
+| `Loops:` | `none`, `over-items`, `capped` (note: the limit) | exactly one | `none` ⇔ no `for`/`while`/comprehension in `run`; `capped` ⇔ a `while` |
+| `Concurrency:` | `free`, `locks-inside`, `caller-locks` (note: which lock) | exactly one | `locks-inside` ⇔ `async with <alias>.run(...)` in `run` |
+| `Raises:` | exception names | zero or more | each is builtin or defined in a `contracts.py`; every `*Error` of its own `contracts.py` is listed |
+
+Each line is `<value>` or `<value>: <note>`; the note is free text, for the reader. A **family** declares only its summary: its effects and repeat are those of its cases, computed. Never declare what the code already shows (children and their order, `match` cases, `TaskGroup`, locks, ports, skeleton bodies): the tool derives it, and a second source would drift.
+
+The tool reads the tree, the calls and these docstrings:
+
+```bash
+uv run python tests/support/architecture.py                                 # tree, for agents
+uv run python tests/support/architecture.py --json                          # the whole graph
+uv run python tests/support/architecture.py --html .dumps/architecture.html # page for humans
+```
+
+The page is self-contained (inline SVG, no network): each package coloured by its strongest effect, calls marked `loop`, `parallel` or `lock`, `_shared/` dashed, and a hover card with the docstring, request → product, ports and sections. It also lists **alerts**: a call inside a loop to a package that is not `safe` to repeat. An alert is a question for the reader, not a failure. `tests/gates/test_architecture_graph.py` fails a value outside the enums, an invented or misplaced section, a declaration the code refutes, and a package that no call reaches (template-decisions E1, E2).
 
 ---
 
@@ -736,7 +772,9 @@ Number of agents, passing tests and percentages are **not** evidence of completi
 | Mock that accepts any attribute | Vacuously green test | coherent typed fake |
 | Retry after the commit because the log failed | Duplicates the effect | `*ResultError` with receipt |
 | `asyncio.to_thread(writing.run, WriteDocument(...))` under lock | Cancellation releases the lock with the write still running | synchronous write inside the lock |
-| Loose module (`files.py`, `jsonvalue.py`, `utils.py`) | Reader does not know where to start nor what it is | package per operation with the five files |
+| Loose module (`files.py`, `jsonvalue.py`, `utils.py`) | Reader does not know where to start nor what it is | package per operation with the four files |
+| A tree of the packages drawn by hand in the README | Goes stale at the first new package | `tests/support/architecture.py` generates it |
+| `Effects: mostly pure` or a new section in the `run` docstring | Each model invents its own words; nothing can check them | the closed values of §2.2, with a note after `:` |
 | HTTP adapter calling `notes.run` or `storage` directly | Side door; the climb disappears | `backend_logic/run.py` + `contracts` |
 | `validate_*` that does `.strip()` | Fixes instead of checking | reject, or a named normalization step |
 | "Tests green, it's done" | Confuses mechanics with product | report what was and was not proven |
@@ -746,7 +784,7 @@ Number of agents, passing tests and percentages are **not** evidence of completi
 ## 17. Checklist
 
 - [ ] Is the project navigable by real files, types and calls before the logic?
-- [ ] Does every folder have the five files and no other? Does every use case descend from `backend_logic/run.py` by `match` down to the leaf?
+- [ ] Does every folder have the four files, no `__init__.py` and no other module? Does every `def run` have a summary and, in a process, the closed sections (§2.2)? Does every use case descend from `backend_logic/run.py` by `match` down to the leaf?
 - [ ] Does each `run` show its story without flattening that of the children?
 - [ ] Consistent vocabulary; new names recorded as a proposal?
 - [ ] Container with declared empties in the constructor (`None` or typed empty), precise fields, intermediates only in it?

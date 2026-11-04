@@ -5,7 +5,7 @@ You have never seen this project. This page says what to read, in what order, an
 ## If you are the orchestrator model (or will review the project)
 
 1. **[`AGENTS.md`](../../AGENTS.md)** — the imperative rules and this project's owner decisions. In conflict with the guide, the owner decisions marked there prevail.
-2. The project's **[`README.md`](../../README.md)** — the map: what each folder demonstrates.
+2. The project's **[`README.md`](../../README.md)** — what each folder demonstrates. Then the current map, generated from the code: `uv run python tests/support/architecture.py` (each package with its summary, effects, repeat, loops and concurrency, and its calls); the vocabulary of those values is guide §2.2.
 3. **The code, by the climb.** Open the files in this order; in each package read `run.py` → `contracts.py` → `container.py` → `pipeline.py`:
    1. `backend_logic/run.py` — the single door and the menu of `@overload`s;
    2. `backend_logic/notes/run.py` — a family: `match` over `PrepareResources | ListNotes | SaveNote`;

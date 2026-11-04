@@ -7,6 +7,7 @@ lazy from .summarizer.contracts import Model, SummarizeNote
 
 
 async def run(initial: RolesRequest, *, model: Model) -> RolesResponse:
+    """Provider-neutral model roles; adapters own provider differences."""
     pipe = Pipe.get(initial)
     match initial:
         case SummarizeNote():

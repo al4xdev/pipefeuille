@@ -8,6 +8,7 @@ lazy from .save.contracts import SaveNote
 
 
 async def run(initial: NotesRequest, *, resources: Resources | None) -> NotesResponse:
+    """Example domain: user notes, used to demonstrate the package language."""
     pipe = Pipe.get(initial)
     match initial:
         case PrepareResources():

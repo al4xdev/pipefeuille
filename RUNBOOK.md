@@ -42,6 +42,8 @@ You are the **orchestrator model** (frontier model). You build the structure; im
    - delegate the bodies; review each delivery through the gates and the diff;
    - integrate and report.
 
+   For the map of the project at any moment, run `uv run python tests/support/architecture.py` (tree, for you) or `--html .dumps/architecture.html` (for the owner); never draw the tree by hand.
+
 5. **Replace the example domain.** `notes/` and `roles/` exist to show the form; they go away when the real domain has its own examples, together with `tests/example/`. The mechanisms (`_shared/json/`, `notes/_shared/storage/`, `notes/prepare/`) stay, but **change place** according to real use (guide §2, `_shared/` block); `tests/mechanisms/` follows them (update its imports). The gate `test_shared_packages_sit_at_the_nearest_common_parent` points out the wrong place. Tests layout:
    - `tests/gates/`: global; keep unchanged in every project. They pass without `tests/example/`.
    - `tests/mechanisms/`: moves with the mechanisms.
@@ -50,7 +52,7 @@ You are the **orchestrator model** (frontier model). You build the structure; im
 
 6. **Record decisions.** Every structural decision of the new project goes into `docs/design/architecture-log.md`, which is born empty. A decision that breaks a template rule is only a **proposal** until the owner approves it in their own words ([`AGENTS.md` → Deviations](template/AGENTS.md#deviations-owner-decision)). `template-decisions.md` and `tests/gates/` do not change in the project: they describe and guard the originating template.
 
-**Do not:** relax a gate to get green, edit `tests/gates/`, grant yourself a deviation, create parallel `ruff.toml`/`mypy.ini`, stray modules outside the five names, a root-level `utils/`, commit or call a paid model without written authorization in `AGENTS.md`.
+**Do not:** relax a gate to get green, edit `tests/gates/`, grant yourself a deviation, create parallel `ruff.toml`/`mypy.ini`, stray modules outside the four names (or an `__init__.py`), an enum value added to `tests/support/architecture.py`, a root-level `utils/`, commit or call a paid model without written authorization in `AGENTS.md`.
 
 ## B. Work on a project born from the template
 
@@ -88,7 +90,7 @@ If the destination must **behave like** the old app and you will rewrite its cod
 Porting is where following a rule costs the most, and so where an agent is most tempted to switch one off "for now". The target is the same as task A: every gate of the template green, with no deviation the owner has not approved in their own words. You are the orchestrator model.
 
 1. **Start from a copy of the template, not from the old tree.** Copy as in task A (step 1) into the destination and confirm the green state. `pyproject.toml`, `tests/gates/` and `tests/support/` come from the template and are never edited; do not bring the old project's linter or type checker settings.
-2. **Measure before moving code.** Against the old code, collect the numbers each gate would report and write them in `.dumps/tasks/` (never in the project): `Any` expressions under `disallow_any_expr`, `cast`/`# type: ignore`/`# noqa` per file, JSON parsing outside a single decoder (`json.loads`, `json.load`, `model_validate_json`…), top-level imports that would not survive `lazy`, modules outside the five names.
+2. **Measure before moving code.** Against the old code, collect the numbers each gate would report and write them in `.dumps/tasks/` (never in the project): `Any` expressions under `disallow_any_expr`, `cast`/`# type: ignore`/`# noqa` per file, JSON parsing outside a single decoder (`json.loads`, `json.load`, `model_validate_json`…), top-level imports that would not survive `lazy`, modules outside the four names, `__init__.py` files with code in them.
 3. **Propose the deviations as one list, then stop.** For each rule you believe cannot be followed, write a `Status: proposed` entry in `docs/design/architecture-log.md` with the measured cost, the alternatives tried and the `Exempts:` tokens ([`AGENTS.md` → Deviations](template/AGENTS.md#deviations-owner-decision)). Show the list to the owner and wait. Do not port the affected code until each entry is approved or rejected. A cost being high is not an argument the agent may settle alone.
 4. **Migrate in the order that removes the most deviations:**
    1. **JSON first:** every parse goes through `_shared/json/decode` (via `backend.run(DecodeText(...))` at the HTTP edge). This alone removes most `Any` expressions, because `json.loads` is where they come from.

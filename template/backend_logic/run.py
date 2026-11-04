@@ -1,11 +1,3 @@
-"""The backend's single entry point: start reading here.
-
-Every request names its use case by type, and the match below sends it to the family
-that owns it. The family's run.py does the same one level down, until a leaf's chain.
-Packages under _shared/ are never dispatched here as families: the json cases below call
-the shared operation directly, like any other consumer.
-"""
-
 lazy from typing import assert_never, overload
 
 lazy from ._shared.json.contracts import JsonValue
@@ -39,6 +31,13 @@ async def run(initial: EncodeValue) -> str: ...
 async def run(
     initial: BackendRequest, *, resources: Resources | None = None, model: Model | None = None
 ) -> NotesResponse | RolesResponse | JsonValue:
+    """The backend's single entry point: start reading here.
+
+    Every request names its use case by type, and the match below sends it to the family
+    that owns it. The family's run.py does the same one level down, until a leaf's chain.
+    Packages under _shared/ are never dispatched here as families: the json cases below call
+    the shared operation directly, like any other consumer.
+    """
     pipe = Pipe.get(initial)
     match initial:
         case PrepareResources() | ListNotes() | SaveNote():
