@@ -1,0 +1,66 @@
+[project]
+name = "agent-project"
+version = "0.1.0"
+description = "Nested logical pipelines and a separate HTTP application"
+requires-python = ">=3.15"
+dependencies = [
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.34.0",
+]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.11.0",
+    "mypy>=1.15.0",
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.25.0",
+    "httpx>=0.28.0",
+]
+
+[tool.uv]
+package = false
+
+[tool.ruff]
+target-version = "py315"
+line-length = 100
+extend-exclude = [".data", ".dumps"]
+# Honor the excludes even when an editor or agent passes a file path explicitly.
+force-exclude = true
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W", "UP", "B", "C4", "SIM"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+# run.py is the visible composition: growing indentation reads as sequence, which the
+# formatter would flatten. Excluded here instead of `# fmt: off` in every file; the linter
+# still checks run.py (imports, line length, names, bugs). The design docs quote run.py
+# compositions in their Python blocks, so they are left to the author for the same reason.
+exclude = ["backend_logic/**/run.py", "docs/**/*.md"]
+
+[tool.mypy]
+python_version = "3.15"
+strict = true
+disallow_any_explicit = true
+disallow_any_unimported = true
+exclude = ["^\\.data/", "^\\.dumps/"]
+
+# The whole backend keeps the strongest gate. Exempt a package only with a recorded reason,
+# never just to turn the gate green. The more specific section below wins for its modules.
+[[tool.mypy.overrides]]
+module = ["backend_logic", "backend_logic.*"]
+disallow_any_expr = true
+
+# json/decode is the one boundary that contains the library's Any (json.loads and its hooks).
+[[tool.mypy.overrides]]
+module = ["backend_logic.json.decode.*"]
+disallow_any_expr = false
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+addopts = "-ra --tb=short -m 'not llm'"
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+markers = ["llm: explicitly selected, owner-authorized real model experiments"]

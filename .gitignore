@@ -1,0 +1,9 @@
+# Extracted source references and scratch: local only.
+.dumps/
+
+# Template build artifacts.
+template/.venv/
+__pycache__/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/

@@ -1,0 +1,10 @@
+# Private runtime data, scratch and references: never tracked.
+.data/
+.dumps/
+
+.venv/
+__pycache__/
+*.pyc
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
