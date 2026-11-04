@@ -2,12 +2,12 @@
 
 lazy from typing import Self
 
-lazy from backend_logic.storage import run as storing
-lazy from backend_logic.storage.path.contracts import FileStore
-lazy from backend_logic.storage.scan.contracts import ScanDirectory
+lazy from backend_logic._shared.note_name import run as naming
+lazy from backend_logic._shared.note_name.contracts import NoteValidationError
+lazy from backend_logic.notes._shared.storage.contracts import FileStore
+lazy from backend_logic.notes._shared.storage.scan import run as scanning
+lazy from backend_logic.notes._shared.storage.scan.contracts import ScanDirectory
 
-lazy from ..name import run as naming
-lazy from ..name.contracts import NoteValidationError
 lazy from .container import Container
 lazy from .contracts import ListNotes, NoteNames
 
@@ -28,7 +28,7 @@ class Pipe:
 
         Confinement belongs to storage/path; a directory never written yet is ().
         """
-        self.container.files = storing.run(ScanDirectory(store, relative))
+        self.container.files = scanning.run(ScanDirectory(store, relative))
         return self
 
     def select_stems(self, *, suffix: str) -> Self:
@@ -42,7 +42,7 @@ class Pipe:
         return self
 
     def admit_names(self) -> Self:
-        """Require stems; set names admitted by the shared notes/name authority. No I/O.
+        """Require stems; set names admitted by the shared note_name authority. No I/O.
 
         A stem it rejects fails the listing (ValueError): a misnamed file is corruption
         to report, not something to hide by filtering.

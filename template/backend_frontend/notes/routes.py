@@ -6,9 +6,10 @@ lazy from fastapi import APIRouter, HTTPException, Request
 lazy from fastapi.responses import JSONResponse
 
 lazy from backend_logic import run as backend
-lazy from backend_logic.json.decode.contracts import DecodeText
+lazy from backend_logic._shared.json.contracts import JsonValue
+lazy from backend_logic._shared.json.decode.contracts import DecodeText
+lazy from backend_logic._shared.note_name.contracts import NoteValidationError
 lazy from backend_logic.notes.list.contracts import ListNotes
-lazy from backend_logic.notes.name.contracts import NoteValidationError
 lazy from backend_logic.notes.save.contracts import NoteConflictError, Revision, SaveNote
 
 lazy from ..lifetime import ResourceSlot
@@ -24,7 +25,7 @@ class NoteSubmission:
 
 
 async def decode_submission(raw: bytes) -> NoteSubmission:
-    # No pydantic: its models carry Any into the contract. The backend's strict json family
+    # No pydantic: its models carry Any into the contract. The backend's shared strict json
     # owns JSON policy (duplicates, NaN, surrogates, depth); this adapter owns wire shape.
     try:
         value = await backend.run(DecodeText(raw.decode("utf-8")))
@@ -46,14 +47,12 @@ async def decode_submission(raw: bytes) -> NoteSubmission:
 
 def build_router(*, slot: ResourceSlot) -> APIRouter:
     """Resources and the server-side author identity come from the application owner."""
-    router = APIRouter()
 
-    @router.get("/notes")
     async def list_notes() -> JSONResponse:
         listed = await backend.run(ListNotes(), resources=slot.require())
-        return JSONResponse({"names": list(listed.names)})
+        body: JsonValue = {"names": list(listed.names)}
+        return JSONResponse(body)
 
-    @router.put("/notes/{name}")
     async def save_note(name: str, request: Request) -> JSONResponse:
         submission = await decode_submission(await request.body())
         resources = slot.require()
@@ -73,13 +72,17 @@ def build_router(*, slot: ResourceSlot) -> APIRouter:
         except NoteConflictError as error:
             raise HTTPException(status_code=409, detail=error.code) from None
         # author_id is internal routing; it does not leave the server.
-        return JSONResponse(
-            {
-                "name": saved.record.name,
-                "body": saved.record.body,
-                "revision": saved.record.revision,
-                "updated_at": saved.record.updated_at.isoformat(),
-            }
-        )
+        body: JsonValue = {
+            "name": saved.record.name,
+            "body": saved.record.body,
+            "revision": saved.record.revision,
+            "updated_at": saved.record.updated_at.isoformat(),
+        }
+        return JSONResponse(body)
 
+    # add_api_route instead of @router.get: FastAPI's decorators are typed with Any, and the
+    # mypy gate keeps Any out of every expression (§6).
+    router = APIRouter()
+    router.add_api_route("/notes", list_notes, methods=["GET"])
+    router.add_api_route("/notes/{name}", save_note, methods=["PUT"])
     return router

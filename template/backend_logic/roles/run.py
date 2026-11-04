@@ -1,15 +1,11 @@
-lazy from typing import assert_never, overload
+lazy from typing import assert_never
 
 lazy from .contracts import RolesRequest, RolesResponse
-lazy from .digest.contracts import Digest, DigestNotes
+lazy from .digest.contracts import DigestNotes
 lazy from .pipeline import Pipe
-lazy from .summarizer.contracts import Model, SummarizeNote, Summary
+lazy from .summarizer.contracts import Model, SummarizeNote
 
 
-@overload
-async def run(initial: SummarizeNote, *, model: Model) -> Summary: ...
-@overload
-async def run(initial: DigestNotes, *, model: Model) -> Digest: ...
 async def run(initial: RolesRequest, *, model: Model) -> RolesResponse:
     pipe = Pipe.get(initial)
     match initial:

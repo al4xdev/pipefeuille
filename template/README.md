@@ -1,36 +1,48 @@
 # agent-project
 
-<!-- PREENCHER: nome e propósito do projeto. -->
+<!-- FILL IN: project name and purpose. -->
 
-Esqueleto no estilo de pipelines verticais: `backend_logic` (domínio, agentes, pipelines) e `backend_frontend` (adaptação HTTP). A direção de dependência é guardada por `tests/test_architecture.py` e o vocabulário por `tests/test_style.py`. Cada pasta é um pacote; a profundidade diz quem o usa. Python 3.15: todo import de topo é `lazy` (PEP 810), com fallback para import normal descrito no guia §6.1.
+Skeleton in the vertical pipelines style: `backend_logic` (domain, agents, pipelines) and `backend_frontend` (HTTP adaptation). The dependency direction is guarded by `tests/test_architecture.py` and the vocabulary by `tests/test_style.py`. Depth says who uses a package, and what two or more neighbours share lives in the `_shared/` of their common parent. Python 3.15: every top-level import is `lazy` (PEP 810), with a fallback to a normal import described in guide §6.1.
 
-## Mapa
+## Map
 
-| Caminho | O que demonstra |
+| Path | What it demonstrates |
 | --- | --- |
-| `backend_logic/run.py` | **Comece a ler aqui.** Porta única: `match` sobre `BackendRequest` desce a cada família; cada família faz o mesmo até a folha. |
-| `backend_logic/notes/` | Família: `NotesRequest = ListNotes \| SaveNote`, despacho por `match` no `run.py`. |
-| `backend_logic/notes/list/` | Processo mínimo: candidatos (`stems`) separados de admitidos (`names`); listagem só lê, não cria diretório. |
-| `backend_logic/notes/name/` | Autoridade compartilhada no nível dos irmãos que a usam (`list`, `save`, `save/decode`). |
-| `backend_logic/notes/save/` | Processo `async`: lock e branch no `run`, etapas filhas `decode`/`encode` chamadas por `decoding.run`/`encoding.run`, `commit` com recibo, `NoteResultError` pós-commit. |
-| `backend_logic/roles/` | Família: `RolesRequest = SummarizeNote \| DigestNotes`. |
-| `backend_logic/roles/summarizer/` | Papel LLM provider-neutral: porta `Model` (Protocol), projeção antes do prompt, resposta como proposta, admissão local. Etapa async em linha `await` própria. |
-| `backend_logic/roles/digest/` | Paralelismo real: `asyncio.TaskGroup` com um `summarizer.run` por nota, orçamento validado antes das chamadas, integração em ordem fixa depois da barreira, falha cancela o resto. |
-| `backend_logic/runtime/application/` | Dono dos recursos de lifetime (`Resources`). |
-| `backend_logic/json/` | Família de mecanismo, um pacote por operação: `validate`, `decode` (única fronteira com o `Any` do `json.loads`), `encode`. |
-| `backend_logic/storage/` | Família de mecanismo: `path` (confinamento), `read` (`Found`/`Missing`), `write` (atômica com `WriteReceipt`), `scan`, `lock` (locks nomeados nunca evictados). |
-| `backend_frontend/` | Rotas que entram só por `backend_logic/run.py`; recursos preparados no `lifespan`. |
-| `tests/` | Arquitetura por AST, ensaios com fakes tipados, "começar no meio", concorrência, borda HTTP. |
+| `backend_logic/run.py` | **Start reading here.** Single door: `match` over `BackendRequest` descends to each family; each family does the same down to the leaf. |
+| `backend_logic/notes/` | Family: `NotesRequest = PrepareResources \| ListNotes \| SaveNote`, dispatch by `match` in `run.py`. |
+| `backend_logic/notes/list/` | Minimal process: candidates (`stems`) separated from admitted (`names`); listing only reads, does not create a directory. |
+| `backend_logic/notes/save/` | `async` process: lock and branch in `run`, child steps `decode`/`encode` called by `decoding.run`/`encoding.run`, `commit` with receipt, post-commit `NoteResultError`. |
+| `backend_logic/notes/prepare/` | Owner of the lifetime resources (`Resources`: store, locks, clock), prepared once in the `lifespan`. |
+| `backend_logic/notes/_shared/storage/` | Disk mechanism, for `notes` only: `read` (`Found`/`Missing`), `write` (atomic with `WriteReceipt`), `scan`, `lock` (named locks never evicted) and `_shared/path` (confinement). Grouping: `contracts.py` with `FileStore`, no `run`. |
+| `backend_logic/roles/` | Family: `RolesRequest = SummarizeNote \| DigestNotes`. |
+| `backend_logic/roles/summarizer/` | Provider-neutral LLM role: `Model` port (Protocol), projection before the prompt, response as a proposal, local admission. Async step on its own `await` line. |
+| `backend_logic/roles/digest/` | Real parallelism: `asyncio.TaskGroup` with one `summarizer.run` per note, budget validated before the calls, integration in fixed order after the barrier, a failure cancels the rest. |
+| `backend_logic/_shared/json/` | Strict JSON used by storage, LLM roles and the HTTP edge: `decode` (the only boundary with the `Any` of `json.loads`), `encode` and `_shared/validate`. Grouping: `contracts.py` with `JsonValue`, no `run`. |
+| `backend_logic/_shared/note_name/` | Authority of the note name, used by `notes` and `roles`. |
+| `backend_frontend/` | Routes that enter only through `backend_logic/run.py`; resources prepared in the `lifespan`. |
+| `tests/` | Architecture by AST, rehearsals with typed fakes, "start in the middle", concurrency, HTTP edge. |
 
-`notes` e `summarizer` são exemplos: substitua pelo domínio real mantendo a forma.
+`notes` and `summarizer` are examples: replace them with the real domain while keeping the form.
 
-## Uso
+## Usage
 
 ```fish
 uv sync
 uv run ruff check .; and uv run ruff format --check .; and uv run mypy .; and uv run pytest
 ```
 
-Linters, formatter, typechecker e testes já vêm configurados no `pyproject.toml`: ruff (regras `E,F,I,N,W,UP,B,C4,SIM`, linha 100, `run.py` fora do formatter para preservar a escada da composição), mypy estrito (sem `Any`, com `disallow_any_expr` em `backend_logic`) e pytest assíncrono com o marcador `llm` desligado. É configuração do projeto, não do editor: mantenha-a.
+Linters, formatter, typechecker and tests already come configured in `pyproject.toml`: ruff (rules `E,F,I,N,W,UP,B,C4,SIM`, line 100, `run.py` outside the formatter to preserve the composition ladder), strict mypy (`disallow_any_expr` across the whole project, `Any` only at three registered boundaries, extra checks on; guarded by `tests/test_config.py`) and async pytest with the `llm` marker off. It is project configuration, not editor configuration: keep it.
 
-Leia `AGENTS.md` e `docs/design/vertical-pipelines.md` antes de mexer em código.
+## Documentation
+
+New agent: start with [`docs/design/reading-order.md`](docs/design/reading-order.md), which gives the reading order by role.
+
+| Document | Purpose |
+| --- | --- |
+| [`AGENTS.md`](AGENTS.md) | Imperative rules and owner decisions of this project. |
+| [`docs/design/reading-order.md`](docs/design/reading-order.md) | What to read, in what order, depending on the role. |
+| [`docs/design/vertical-pipelines.md`](docs/design/vertical-pipelines.md) | The complete guide to the style. |
+| [`docs/design/vocabulary.md`](docs/design/vocabulary.md) | Defined names, conventions and proposals. |
+| [`docs/design/template-decisions.md`](docs/design/template-decisions.md) | Why each template rule exists, the gate that guards it and what it does not prove. |
+| [`docs/design/construction.md`](docs/design/construction.md) | Construction in waves: the orchestrator writes almost everything, subagents on intermediate or smaller models fill in the method bodies. |
+| [`docs/design/architecture-log.md`](docs/design/architecture-log.md) | Log of this project's decisions (born empty). |

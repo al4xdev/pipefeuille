@@ -6,7 +6,8 @@ from datetime import UTC, datetime
 
 import pytest
 
-from backend_logic.notes.name.contracts import NoteName
+from backend_logic._shared.json.contracts import JsonValue
+from backend_logic._shared.note_name.contracts import NoteName
 from backend_logic.notes.save.contracts import AuthorId, NoteRecord, Revision
 from backend_logic.roles.digest.contracts import Digest, DigestNotes, DigestRejectedError
 from backend_logic.roles.digest.run import run
@@ -34,7 +35,8 @@ def title_of(request: ModelRequest) -> str:
 
 
 def reply_with(text: str) -> ModelReply:
-    return ModelReply(content=json.dumps({"sentences": [text]}))
+    payload: JsonValue = {"sentences": [text]}
+    return ModelReply(content=json.dumps(payload))
 
 
 class SecondFinishesFirstModel:

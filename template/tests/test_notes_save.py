@@ -7,8 +7,19 @@ from pathlib import Path
 
 import pytest
 
-from backend_logic.json.validate.contracts import JsonValue
-from backend_logic.notes.name.contracts import NoteName, NoteValidationError
+from backend_logic._shared.json.contracts import JsonValue
+from backend_logic._shared.note_name.contracts import NoteName, NoteValidationError
+from backend_logic.notes._shared.storage.contracts import FileStore
+from backend_logic.notes._shared.storage.lock import run as locking
+from backend_logic.notes._shared.storage.lock.contracts import LockRegistry, SelectLock
+from backend_logic.notes._shared.storage.read import run as reading
+from backend_logic.notes._shared.storage.read.contracts import Found, JsonRead, ReadDocument
+from backend_logic.notes._shared.storage.write import run as writing
+from backend_logic.notes._shared.storage.write.contracts import (
+    AtomicWriteError,
+    PublicationStatus,
+    WriteDocument,
+)
 from backend_logic.notes.save.contracts import (
     AuthorId,
     NoteConflictError,
@@ -22,15 +33,6 @@ from backend_logic.notes.save.decode import run as decoding
 from backend_logic.notes.save.encode import run as encoding
 from backend_logic.notes.save.pipeline import Pipe
 from backend_logic.notes.save.run import run
-from backend_logic.storage import run as storing
-from backend_logic.storage.lock.contracts import LockRegistry, SelectLock
-from backend_logic.storage.path.contracts import FileStore
-from backend_logic.storage.read.contracts import Found, JsonRead, ReadDocument
-from backend_logic.storage.write.contracts import (
-    AtomicWriteError,
-    PublicationStatus,
-    WriteDocument,
-)
 
 AUTHOR = AuthorId("author-1")
 NOTE_PATH = "notes/groceries.json"
@@ -55,7 +57,7 @@ def submission(*, body: str, replace: bool = False, revision: int | None = None)
 
 
 def stored_note(store: FileStore) -> JsonRead:
-    return storing.run(ReadDocument(store, NOTE_PATH))
+    return reading.run(ReadDocument(store, NOTE_PATH))
 
 
 def stored_record(store: FileStore) -> NoteRecord:
@@ -65,7 +67,7 @@ def stored_record(store: FileStore) -> NoteRecord:
 
 
 def publish(store: FileStore, value: JsonValue) -> None:
-    storing.run(WriteDocument(store, NOTE_PATH, value))
+    writing.run(WriteDocument(store, NOTE_PATH, value))
 
 
 async def test_create_then_replace_increments_revision_once(tmp_path: Path) -> None:
@@ -167,12 +169,12 @@ async def test_named_lock_excludes_same_name_and_admits_other_names() -> None:
     entered: list[str] = []
 
     async def holder() -> None:
-        async with storing.run(SelectLock(locks, kind="note", name="groceries")):
+        async with locking.run(SelectLock(locks, kind="note", name="groceries")):
             held.set()
             await release.wait()
 
     async def contender(kind: str, name: str) -> None:
-        async with storing.run(SelectLock(locks, kind=kind, name=name)):
+        async with locking.run(SelectLock(locks, kind=kind, name=name)):
             entered.append(name)
 
     holding = asyncio.create_task(holder())
@@ -187,8 +189,8 @@ async def test_named_lock_excludes_same_name_and_admits_other_names() -> None:
     await asyncio.gather(holding, same)
     assert entered == ["todo", "groceries"]
     # Never evicted: the same key keeps the same lock after every holder left.
-    selected = storing.run(SelectLock(locks, kind="note", name="groceries"))
-    assert selected is storing.run(SelectLock(locks, kind="note", name="groceries"))
+    selected = locking.run(SelectLock(locks, kind="note", name="groceries"))
+    assert selected is locking.run(SelectLock(locks, kind="note", name="groceries"))
 
 
 async def test_sequential_duplicate_creation_conflicts(tmp_path: Path) -> None:

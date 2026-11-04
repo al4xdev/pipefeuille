@@ -44,17 +44,37 @@ python_version = "3.15"
 strict = true
 disallow_any_explicit = true
 disallow_any_unimported = true
+# Any never appears in an expression, in any package or test. The three boundary modules
+# below are the only exemptions (docs/design/template-decisions.md, C2); a new one needs an
+# owner decision recorded in docs/design/architecture-log.md.
+disallow_any_expr = true
+warn_unreachable = true
+strict_bytes = true
+enable_error_code = [
+    "ignore-without-code",
+    "redundant-expr",
+    "redundant-self",
+    "truthy-bool",
+    "truthy-iterable",
+    "possibly-undefined",
+    "unused-awaitable",
+    "explicit-override",
+    "mutable-override",
+    "exhaustive-match",
+    "deprecated",
+]
 exclude = ["^\\.data/", "^\\.dumps/"]
 
-# The whole backend keeps the strongest gate. Exempt a package only with a recorded reason,
-# never just to turn the gate green. The more specific section below wins for its modules.
+# _shared/json/decode is the one boundary that contains the library's Any (json.loads and its hooks).
 [[tool.mypy.overrides]]
-module = ["backend_logic", "backend_logic.*"]
-disallow_any_expr = true
+module = ["backend_logic._shared.json.decode.*"]
+disallow_any_expr = false
 
-# json/decode is the one boundary that contains the library's Any (json.loads and its hooks).
+# tomllib returns dict[str, Any]; the config test narrows it with isinstance.
+# Starlette's TestClient reaches mypy as Any; wire_client wraps it in a typed client.
+# Test modules have no package, so mypy names them by file (test_config, not tests.test_config).
 [[tool.mypy.overrides]]
-module = ["backend_logic.json.decode.*"]
+module = ["test_config", "wire_client"]
 disallow_any_expr = false
 
 [tool.pytest.ini_options]

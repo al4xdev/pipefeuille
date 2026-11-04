@@ -1,17 +1,16 @@
 """Actual listing behavior plus package and segment composition rehearsals."""
 
-from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Literal, Self
+from typing import Literal, Self, override
 
 import pytest
 
+from backend_logic._shared.note_name.contracts import NoteName
+from backend_logic.notes._shared.storage.contracts import FileStore
 from backend_logic.notes.list.container import Container
 from backend_logic.notes.list.contracts import ListNotes, NoteNames
 from backend_logic.notes.list.pipeline import Pipe
 from backend_logic.notes.list.run import run
-from backend_logic.notes.name.contracts import NoteName
-from backend_logic.storage.path.contracts import FileStore
 
 type Call = (
     tuple[Literal["scan_directory", "select_stems"], str]
@@ -19,24 +18,26 @@ type Call = (
 )
 
 
-@dataclass
-class RecordingContainer(Container):
-    calls: list[Call] = field(default_factory=list)
-
-
 class RecordingFake(Pipe):
-    """Explicit typed test double; fields it sets stay coherent with each stage's contract."""
+    """Explicit typed test double; fields it sets stay coherent with each stage's contract.
+
+    The call log lives beside the real Container, not in a subclass of it: narrowing an
+    inherited mutable attribute is unsound (mypy mutable-override).
+    """
 
     def __init__(self) -> None:
-        self.container: RecordingContainer = RecordingContainer()
+        super().__init__()
+        self.calls: list[Call] = []
 
+    @override
     def scan_directory(self, *, store: FileStore, relative: str) -> Self:
-        self.container.calls.append(("scan_directory", relative))
+        self.calls.append(("scan_directory", relative))
         self.container.files = ("example.json", "notes.txt")
         return self
 
+    @override
     def select_stems(self, *, suffix: str) -> Self:
-        self.container.calls.append(("select_stems", suffix))
+        self.calls.append(("select_stems", suffix))
         if self.container.files is None:
             raise RuntimeError("fixture requires files")
         self.container.stems = tuple(
@@ -44,23 +45,26 @@ class RecordingFake(Pipe):
         )
         return self
 
+    @override
     def admit_names(self) -> Self:
-        self.container.calls.append(("admit_names", None))
+        self.calls.append(("admit_names", None))
         if self.container.stems is None:
             raise RuntimeError("fixture requires stems")
         # The fixture's stems are already valid; real admission is tested separately.
         self.container.names = tuple(NoteName(stem) for stem in self.container.stems)
         return self
 
+    @override
     def sort_names(self) -> Self:
-        self.container.calls.append(("sort_names", None))
+        self.calls.append(("sort_names", None))
         if self.container.names is None:
             raise RuntimeError("fixture requires names")
         self.container.names = tuple(sorted(self.container.names))
         return self
 
+    @override
     def materialize(self) -> NoteNames:
-        self.container.calls.append(("materialize", None))
+        self.calls.append(("materialize", None))
         if self.container.names is None:
             raise RuntimeError("fixture requires names")
         return NoteNames(names=self.container.names)
@@ -95,7 +99,7 @@ def test_real_run_composes_the_declared_contract_with_a_fake(
     monkeypatch.setattr(Pipe, "get", staticmethod(factory))
     assert run(initial, store=FileStore(tmp_path)) == NoteNames(names=(NoteName("example"),))
     assert received == [initial]
-    assert fake.container.calls == [
+    assert fake.calls == [
         ("scan_directory", "notes"),
         ("select_stems", ".json"),
         ("admit_names", None),

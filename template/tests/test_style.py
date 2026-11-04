@@ -5,8 +5,8 @@ break is a decision for the owner and architecture-log.md, not a reason to edit 
 """
 
 import ast
-import tomllib
 from pathlib import Path
+from typing import Literal
 
 ROOT = Path(__file__).resolve().parents[1]
 LOGIC = ROOT / "backend_logic"
@@ -17,12 +17,38 @@ CHILD_INTERNALS = {"pipeline", "container", "helpers"}  # §3.2: parent imports 
 # where every package starts (run.py), what it holds (container.py) and what it trades
 # (contracts.py). No other module name exists in backend_logic.
 PACKAGE_FILES = ("__init__.py", "contracts.py", "container.py", "pipeline.py", "run.py")
+# §2 (_shared): a package used by two or more neighbours lives in the `_shared/` of their nearest
+# common parent. `_shared/` itself only groups (docstring); a grouping inside it (json/,
+# storage/) holds the values every operation trades, and each operation is a package.
+SHARED = "_shared"
+SHARED_FILES = ("__init__.py",)
+GROUPING_FILES = ("__init__.py", "contracts.py")
 
 
-def logic_packages() -> list[Path]:
-    """Every folder in backend_logic is a package, the root included (§2)."""
-    folders = [LOGIC, *(path for path in LOGIC.rglob("*") if path.is_dir())]
+type FolderKind = Literal["shared", "grouping", "package"]
+
+
+def logic_folders(logic: Path = LOGIC) -> list[Path]:
+    folders = [logic, *(path for path in logic.rglob("*") if path.is_dir())]
     return sorted(folder for folder in folders if "__pycache__" not in folder.parts)
+
+
+def folder_kind(folder: Path) -> FolderKind:
+    """`_shared/` groups; a run-less child of `_shared/` is a grouping; the rest are packages."""
+    if folder.name == SHARED:
+        return "shared"
+    if folder.parent.name == SHARED and not (folder / "run.py").exists():
+        return "grouping"
+    return "package"
+
+
+def logic_packages(logic: Path = LOGIC) -> list[Path]:
+    """Every folder that is not `_shared/` or a grouping has the five files (§2)."""
+    return [folder for folder in logic_folders(logic) if folder_kind(folder) == "package"]
+
+
+def is_shared(folder: Path, logic: Path = LOGIC) -> bool:
+    return SHARED in folder.relative_to(logic).parts
 
 
 def pipe_class(tree: ast.Module) -> ast.ClassDef | None:
@@ -143,16 +169,16 @@ def test_style_scanner_reports_every_rule() -> None:
         "from .encode import pipeline\n"
         "from .encode.container import Container\n"
         "from ..name.helpers import trim\n"
-        "from backend_logic.storage import run as storing\n"
-        "from backend_logic.storage.write.contracts import WriteDocument\n"
-        "from backend_logic.storage.write.pipeline import Pipe\n"
-        "from backend_logic.storage.read import container\n"
+        "from backend_logic.notes._shared.storage.write import run as writing\n"
+        "from backend_logic.notes._shared.storage.write.contracts import WriteDocument\n"
+        "from backend_logic.notes._shared.storage.write.pipeline import Pipe\n"
+        "from backend_logic.notes._shared.storage.read import container\n"
     ) == [
         ".encode.pipeline",
         ".encode.container",
         "..name.helpers",
-        "backend_logic.storage.write.pipeline.Pipe",
-        "backend_logic.storage.read.container",
+        "backend_logic.notes._shared.storage.write.pipeline.Pipe",
+        "backend_logic.notes._shared.storage.read.container",
     ]
     assert has_match("match x:\n    case int():\n        pass\n")
     assert not has_match("if isinstance(x, int):\n    pass\n")
@@ -160,14 +186,45 @@ def test_style_scanner_reports_every_rule() -> None:
     assert not declares_request_union("type NoteDocument = dict[str, JsonValue]\n")
 
 
-def test_every_folder_is_a_package_with_the_mandatory_files() -> None:
-    missing = [
-        f"{package.relative_to(ROOT)}/{name}"
-        for package in logic_packages()
-        for name in PACKAGE_FILES
-        if not (package / name).is_file()
+def shape_violations(logic: Path) -> list[str]:
+    """Folders whose modules differ from what their kind requires (§2)."""
+    expected: dict[FolderKind, tuple[str, ...]] = {
+        "shared": SHARED_FILES,
+        "grouping": GROUPING_FILES,
+        "package": PACKAGE_FILES,
+    }
+    found: list[str] = []
+    for folder in logic_folders(logic):
+        kind = folder_kind(folder)
+        modules = sorted(path.name for path in folder.glob("*.py"))
+        if modules != sorted(expected[kind]):
+            found.append(f"{folder.relative_to(logic.parent)}: {kind} has {modules}")
+        children = [p for p in folder.iterdir() if p.is_dir() and p.name != "__pycache__"]
+        if kind != "package" and not children:
+            found.append(f"{folder.relative_to(logic.parent)}: empty {kind}")
+    return found
+
+
+def test_every_folder_has_the_files_its_kind_requires() -> None:
+    assert not shape_violations(LOGIC)
+
+
+def test_shape_scanner_reports_every_kind(tmp_path: Path) -> None:
+    five = {f"backend_logic/{name}": "" for name in PACKAGE_FILES}
+    write_tree(
+        tmp_path,
+        {
+            **five,
+            "backend_logic/_shared/__init__.py": "",
+            "backend_logic/_shared/contracts.py": "",  # _shared only groups
+            "backend_logic/_shared/empty/__init__.py": "",  # grouping with nothing inside
+            "backend_logic/_shared/empty/contracts.py": "",
+        },
+    )
+    assert shape_violations(tmp_path / "backend_logic") == [
+        "backend_logic/_shared: shared has ['__init__.py', 'contracts.py']",
+        "backend_logic/_shared/empty: empty grouping",
     ]
-    assert not missing
 
 
 def test_no_module_outside_the_mandatory_names() -> None:
@@ -186,6 +243,13 @@ def test_every_family_run_dispatches_by_typed_use_case() -> None:
     # save/encode) are its stages, not use cases, so a process needs no dispatch.
     families = [package for package in logic_packages() if is_family(package)]
     assert LOGIC in families
+    # §2 (_shared): a family is a door for use cases; nothing under _shared/ is one.
+    shared_families = [str(p.relative_to(ROOT)) for p in families if is_shared(p)]
+    shared_groupings = [
+        str(folder.relative_to(ROOT))
+        for folder in logic_folders()
+        if folder_kind(folder) == "grouping" and is_family(folder)
+    ]
     silent = [
         str(package.relative_to(ROOT))
         for package in families
@@ -198,6 +262,223 @@ def test_every_family_run_dispatches_by_typed_use_case() -> None:
     ]
     assert not silent
     assert not broken_climb
+    assert not shared_families
+    assert not shared_groupings
+
+
+def imported_runs(path: Path) -> list[Path]:
+    """Package folders whose run module this file imports (`from <pkg> import run`)."""
+    own = path.parent.relative_to(ROOT).parts
+    found: list[Path] = []
+    for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+        if not isinstance(node, ast.ImportFrom) or "run" not in {a.name for a in node.names}:
+            continue
+        parts = node.module.split(".") if node.module else []
+        base = parts if node.level == 0 else [*own[: len(own) - node.level + 1], *parts]
+        found.append(ROOT.joinpath(*base))
+    return found
+
+
+def has_overload(source: str) -> bool:
+    return any(
+        isinstance(node, ast.Name) and node.id == "overload" for node in ast.walk(ast.parse(source))
+    )
+
+
+def test_only_the_root_declares_overloads_and_only_parents_call_a_family() -> None:
+    # §2: a family only dispatches and returns its <Family>Response union. The root's
+    # overloads are the backend's public menu; an overload elsewhere is an unverified
+    # promise (mypy does not check it against each case). A caller that needs an exact
+    # product calls the process (_shared/json/encode, notes/_shared/storage/lock), never a
+    # family; only the family's parent pipeline.py climbs into it.
+    families = {package for package in logic_packages() if is_family(package)}
+    overloaded = [
+        str(package.relative_to(ROOT))
+        for package in families
+        if package != LOGIC and has_overload((package / "run.py").read_text(encoding="utf-8"))
+    ]
+    shortcuts = [
+        f"{path.relative_to(ROOT)} -> {target.relative_to(ROOT)}"
+        for path in LOGIC.rglob("*.py")
+        for target in imported_runs(path)
+        if target in families and path != target.parent / "pipeline.py"
+    ]
+    assert not overloaded
+    assert not shortcuts
+
+
+def nearest_folder(path: Path, logic: Path) -> Path | None:
+    """The package folder an import target names, climbing from module or symbol to dir."""
+    for candidate in (path, *path.parents):
+        if candidate == logic.parent:
+            return None
+        if candidate.is_dir():
+            return candidate
+    return None
+
+
+def imported_folders(path: Path, logic: Path) -> set[Path]:
+    """Folders under logic this file imports from; a contracts-only import counts too.
+
+    A neighbour that only uses another package's types still depends on its rule, so it is
+    a consumer for §2 (_shared) the same as one that calls its run.
+    """
+    found: set[Path] = set()
+    for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+        if isinstance(node, ast.ImportFrom):
+            parts = node.module.split(".") if node.module else []
+            if node.level == 0:
+                if parts[:1] != [logic.name]:
+                    continue
+                base = logic.parent.joinpath(*parts)
+            else:
+                anchor = path.parent
+                for _ in range(node.level - 1):
+                    anchor = anchor.parent
+                base = anchor.joinpath(*parts)
+            targets = [base / alias.name for alias in node.names]
+        elif isinstance(node, ast.Import):
+            targets = [
+                logic.parent.joinpath(*alias.name.split("."))
+                for alias in node.names
+                if alias.name.split(".")[0] == logic.name
+            ]
+        else:
+            continue
+        for target in targets:
+            folder = nearest_folder(target, logic)
+            if folder is not None and folder.is_relative_to(logic):
+                found.add(folder)
+    return found
+
+
+def import_edges(logic: Path) -> list[tuple[Path, Path]]:
+    """(importer folder, imported folder) for every backend module, own package excluded."""
+    return [
+        (path.parent, target)
+        for path in logic.rglob("*.py")
+        if "__pycache__" not in path.parts
+        for target in imported_folders(path, logic)
+        if target != path.parent
+    ]
+
+
+def neighbour(importer: Path, owner: Path) -> str | None:
+    """Which child of owner an importer belongs to: `.` is owner itself; None is outside."""
+    if not importer.is_relative_to(owner):
+        return None
+    parts = importer.relative_to(owner).parts
+    if not parts:
+        return "."
+    if parts[0] == SHARED:
+        return f"{SHARED}/{parts[1]}" if len(parts) > 1 else None
+    return parts[0]
+
+
+def use_case_names(family: Path) -> set[str]:
+    """Names in the family's `<Family>Request` union."""
+    tree = ast.parse((family / "contracts.py").read_text(encoding="utf-8"))
+    return {
+        name.id
+        for node in tree.body
+        if isinstance(node, ast.TypeAlias) and node.name.id.endswith("Request")
+        for name in ast.walk(node.value)
+        if isinstance(name, ast.Name)
+    }
+
+
+def is_use_case(package: Path) -> bool:
+    """A family, or a package defining a request its parent family's union names."""
+    if is_family(package):
+        return True
+    parent = package.parent
+    if folder_kind(parent) != "package" or not is_family(parent):
+        return False
+    defined = {
+        node.name
+        for node in ast.parse((package / "contracts.py").read_text(encoding="utf-8")).body
+        if isinstance(node, ast.ClassDef)
+    }
+    return bool(defined & use_case_names(parent))
+
+
+def placement_violations(logic: Path) -> list[str]:
+    """§2 (_shared): shared lives in `_shared/` at the nearest common parent, and only there."""
+    edges = import_edges(logic)
+    found: list[str] = []
+    for folder in logic_folders(logic):
+        name = str(folder.relative_to(logic.parent))
+        if folder.parent.name == SHARED:
+            owner = folder.parent.parent
+            consumers = {
+                key
+                for importer, target in edges
+                if target.is_relative_to(folder) and not importer.is_relative_to(folder)
+                if (key := neighbour(importer, owner)) is not None
+            }
+            if len(consumers) < 2:
+                found.append(f"{name}: shared by {sorted(consumers)}; move it into its user")
+        if folder == logic or is_shared(folder, logic) or is_use_case(folder):
+            continue
+        parent = folder.parent
+        users = {
+            neighbour(importer, parent) or "outside"
+            for importer, target in edges
+            if target.is_relative_to(folder) and not importer.is_relative_to(folder)
+        } - {"."}
+        if len(users) >= 2 or "outside" in users:
+            found.append(f"{name}: used by {sorted(users)}; move it to a _shared/")
+    for importer, target in edges:
+        parts = target.relative_to(logic).parts
+        if SHARED not in parts:
+            continue
+        depth = len(parts) - 1 - parts[::-1].index(SHARED)
+        owner = logic.joinpath(*parts[:depth])
+        if not importer.is_relative_to(owner):
+            found.append(
+                f"{importer.relative_to(logic.parent)} reaches into "
+                f"{target.relative_to(logic.parent)}, private to {owner.relative_to(logic.parent)}"
+            )
+    return found
+
+
+def write_tree(root: Path, files: dict[str, str]) -> None:
+    for relative, source in files.items():
+        path = root / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(source, encoding="utf-8")
+
+
+def test_placement_scanner_reports_every_rule(tmp_path: Path) -> None:
+    # Guards the guard on a synthetic tree: one shared package with a single user, one
+    # helper used by two siblings outside _shared, one reach into a private _shared.
+    write_tree(
+        tmp_path,
+        {
+            "backend_logic/contracts.py": "type BackendRequest = A\n",
+            "backend_logic/a/contracts.py": "class A: ...\n",
+            "backend_logic/a/pipeline.py": "from backend_logic.a._shared.lone import run\n",
+            "backend_logic/a/_shared/lone/contracts.py": "",
+            "backend_logic/a/helper/contracts.py": "",
+            "backend_logic/a/x/pipeline.py": "from ..helper import run\n",
+            "backend_logic/a/x/contracts.py": "",
+            "backend_logic/a/y/pipeline.py": "from backend_logic.a.helper.contracts import H\n",
+            "backend_logic/a/y/contracts.py": "",
+            "backend_logic/b/pipeline.py": "from backend_logic.a._shared.lone.contracts import L\n",
+            "backend_logic/b/contracts.py": "",
+        },
+    )
+    assert placement_violations(tmp_path / "backend_logic") == [
+        # a's own pipeline is one user; b's import does not count, it is outside a.
+        "backend_logic/a/_shared/lone: shared by ['.']; move it into its user",
+        # A contracts-only import (y) counts as much as calling run (x).
+        "backend_logic/a/helper: used by ['x', 'y']; move it to a _shared/",
+        "backend_logic/b reaches into backend_logic/a/_shared/lone, private to backend_logic/a",
+    ]
+
+
+def test_shared_packages_sit_at_the_nearest_common_parent() -> None:
+    assert not placement_violations(LOGIC)
 
 
 def test_package_init_is_a_docstring_without_startup() -> None:
@@ -250,7 +531,12 @@ def open_closed_names(source: str) -> list[str]:
             annotation, name = node.annotation, node.arg
         elif isinstance(node, ast.AnnAssign):
             target = node.target
-            name = target.attr if isinstance(target, ast.Attribute) else getattr(target, "id", "")
+            if isinstance(target, ast.Attribute):
+                name = target.attr
+            elif isinstance(target, ast.Name):
+                name = target.id
+            else:
+                continue
             annotation = node.annotation
         else:
             continue
@@ -278,12 +564,8 @@ def test_error_codes_and_phases_are_closed_sets() -> None:
     assert not violations
 
 
-def test_run_composition_is_left_to_the_author_not_the_formatter() -> None:
-    # §4.1: the formatter is configured once in pyproject to skip run.py, so no file needs a
-    # `# fmt:` escape. force-exclude keeps editors that pass a path from reformatting it.
-    ruff = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["tool"]["ruff"]
-    assert ruff["force-exclude"] is True
-    assert {"backend_logic/**/run.py", "docs/**/*.md"} <= set(ruff["format"]["exclude"])
+def test_run_composition_has_no_formatter_escapes() -> None:
+    # §4.1: pyproject skips run.py once (checked in test_config.py), so no file needs `# fmt:`.
     escapes = [
         str(path.relative_to(ROOT))
         for path in LOGIC.rglob("*.py")

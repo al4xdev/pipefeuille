@@ -1,4 +1,4 @@
-"""HTTP application assembly; resource ownership stays in backend_logic.runtime."""
+"""HTTP application assembly; resource ownership stays in backend_logic.notes.prepare."""
 
 lazy from collections.abc import AsyncIterator
 lazy from contextlib import asynccontextmanager
@@ -7,8 +7,8 @@ lazy from pathlib import Path
 lazy from fastapi import FastAPI
 
 lazy from backend_logic import run as backend
+lazy from backend_logic.notes.prepare.contracts import PrepareResources
 lazy from backend_logic.notes.save.contracts import AuthorId
-lazy from backend_logic.runtime.application.contracts import PrepareResources
 
 lazy from .lifetime import ResourceSlot
 lazy from .notes.routes import build_router

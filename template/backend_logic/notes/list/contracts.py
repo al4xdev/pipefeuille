@@ -1,6 +1,6 @@
 lazy from dataclasses import dataclass
 
-lazy from ..name.contracts import NoteName
+lazy from backend_logic._shared.note_name.contracts import NoteName
 
 
 @dataclass(frozen=True)

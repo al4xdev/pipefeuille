@@ -1,16 +1,17 @@
 lazy from datetime import timedelta
 lazy from typing import Literal, Self
 
-lazy from backend_logic.storage import run as storing
-lazy from backend_logic.storage.path.contracts import FileStore
-lazy from backend_logic.storage.read.contracts import Found, ReadDocument
-lazy from backend_logic.storage.write.contracts import (
+lazy from backend_logic._shared.note_name import run as naming
+lazy from backend_logic.notes._shared.storage.contracts import FileStore
+lazy from backend_logic.notes._shared.storage.read import run as reading
+lazy from backend_logic.notes._shared.storage.read.contracts import Found, ReadDocument
+lazy from backend_logic.notes._shared.storage.write import run as writing
+lazy from backend_logic.notes._shared.storage.write.contracts import (
     AtomicWriteError,
     PublicationStatus,
     WriteDocument,
 )
 
-lazy from ..name import run as naming
 lazy from .container import Container
 lazy from .contracts import (
     Clock,
@@ -37,7 +38,7 @@ class Pipe:
         return pipe
 
     def validate_name(self) -> Self:
-        """Require input; set name admitted by the shared notes/name authority.
+        """Require input; set name admitted by the shared note_name authority.
 
         Propagate NoteValidationError("invalid_name"); no I/O, no correction.
         """
@@ -60,7 +61,7 @@ class Pipe:
         """
         if self.container.name is None or self.container.relative_path is None:
             raise RuntimeError("current note lookup requires name and path")
-        read = storing.run(ReadDocument(store, self.container.relative_path))
+        read = reading.run(ReadDocument(store, self.container.relative_path))
         record = decoding.run(read.value) if isinstance(read, Found) else None
         if record is not None and record.name != self.container.name:
             raise ValueError("stored note name does not match its path")
@@ -136,7 +137,7 @@ class Pipe:
         if self.container.receipt is not None:
             raise RuntimeError("note publication was already attempted")
         try:
-            self.container.receipt = storing.run(
+            self.container.receipt = writing.run(
                 WriteDocument(store, self.container.relative_path, self.container.document)
             )
         except AtomicWriteError as error:

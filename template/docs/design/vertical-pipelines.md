@@ -1,40 +1,40 @@
-# Guia de referência: pipelines verticais, legibilidade primeiro
+# Reference guide: vertical pipelines, readability first
 
-> O código é o próprio blueprint. O esqueleto precisa ser tipado e **ensaiado**, não apenas existir. Cada pacote conta uma história completa no seu nível; as transformações trabalham em um `Container` local até `materialize` entregar a saída.
+> The code is the blueprint itself. The skeleton must be typed and **rehearsed**, not merely exist. Each package tells a complete story at its level; the transformations work on a local `Container` until `materialize` delivers the output.
 
-Derivado do Alex Tavern 2 (guia111 revisão6, vocabulário e lições de processo). Este é o núcleo transferível: vale para qualquer projeto de agentes que nasça neste estilo. O que é específico do Tavern (roleplay, reconstrução de um app antigo, provider preferido) está separado na seção 18.
+This guide applies to any agent project born from this template. What is a domain decision of each project (invariants, provider, critics policy) stays in its `AGENTS.md`; section 18 lists what the owner of a new project needs to decide.
 
-**Autoridade da fonte:** o Tavern está inacabado (há stubs e pacotes a meio caminho). Os documentos de design dele (`vertical-pipelines.md`, `vocabulary.md`, `AGENTS.md`) definem o padrão. O código dele serve só como exemplo: variação no código, ou ausência de algo nele, não autoriza desvio do padrão. Quando este guia cita código do Tavern, é para ilustrar, não para criar regra.
+**Authority:** this guide and the [vocabulary](vocabulary.md) define the pattern; the template's code is the executable example. If the code and the guide diverge, the guide prevails and the divergence is a bug to record. The summary in `AGENTS.md` is not a competing architecture; owner decisions marked in it prevail over the guide.
 
-Antes de mexer num pacote, leia este guia e o [vocabulário](vocabulary.md) do projeto. O resumo em `AGENTS.md` não é uma arquitetura concorrente; em conflito, este guia vale.
-
----
-
-## 1. Princípios em uma linha
-
-1. **O código é o blueprint.** Pacotes, tipos, Containers, assinaturas e composições reais vêm antes da lógica. Árvore em Markdown não substitui código.
-2. **Ler de cima para baixo como uma conta.** Legibilidade vence DRY mecânico, funções curtas e poucos parâmetros.
-3. **Tipagem estrita delimita a liberdade do implementador.** Quanto mais o contrato diz, menos o agente adivinha.
-4. **Ensaiar antes de delegar.** O esqueleto roda com fakes tipados e dados coerentes atravessando as ligações reais.
-5. **Pacotes verticais completos, em qualquer profundidade útil.** Cada `run` conta a história inteira do seu nível.
-6. **Ordem fixa e visível.** Nada de motor de steps, DSL de orquestração ou fila escondida de efeitos.
-7. **Estado explícito.** Configuração e recursos são carregados pelo dono e passados como argumento; nada de `CLIENT`/`STATE`/`SETTINGS` global.
-8. **Honestidade de status.** Tipagem verde, testes verdes e mocks não provam produto pronto. Diga o que está ausente, ensaiado, implementado, integrado e verificado.
-
-Não se aplica Clean Code, Clean Architecture, DRY ou imutabilidade por obrigação. Uma função longa e coerente, composição repetida, literal no parâmetro ou argumento que "poderia ser buscado internamente" podem ser escolhas deliberadas de leitura.
+**First time here?** Follow the reading order in [reading-order.md](reading-order.md). To learn how the project is built in waves (who writes what), read [construction.md](construction.md). The why of each template rule, with the gate that guards it, is in [template-decisions.md](template-decisions.md).
 
 ---
 
-## 2. Anatomia de um pacote
+## 1. Principles in one line
+
+1. **The code is the blueprint.** Real packages, types, Containers, signatures and compositions come before the logic. A tree in Markdown does not replace code.
+2. **Read from top to bottom like a calculation.** Readability beats mechanical DRY, short functions and few parameters.
+3. **Strict typing bounds the implementer's freedom.** The more the contract says, the less the agent guesses.
+4. **Rehearse before delegating.** The skeleton runs with typed fakes and coherent data crossing the real wiring.
+5. **Complete vertical packages, at any useful depth.** Each `run` tells the whole story of its level.
+6. **Fixed, visible order.** No step engine, orchestration DSL or hidden effect queue.
+7. **Explicit state.** Configuration and resources are loaded by the owner and passed as arguments; no global `CLIENT`/`STATE`/`SETTINGS`.
+8. **Status honesty.** Green typing, green tests and mocks do not prove a finished product. Say what is absent, rehearsed, implemented, integrated and verified.
+
+Clean Code, Clean Architecture, DRY or immutability are not applied out of obligation. A long, coherent function, a repeated composition, a literal in the parameter or an argument that "could be fetched internally" can be deliberate reading choices.
+
+---
+
+## 2. Anatomy of a package
 
 ```text
 notes/save/
-├── __init__.py     # docstring de uma linha; nenhum I/O, config ou startup no import
-├── contracts.py    # tipos que entram e saem, tipos dos campos do Container, portas, erros
-├── container.py    # @dataclass Container: forma fixa, campos vazios declarados (None ou vazio tipado)
-├── pipeline.py     # class Pipe: get(), transformações que retornam Self, materialize()
-├── run.py          # def run / async def run: a composição visível, entrada pública
-└── encode/         # filho: outro pacote completo, com seu próprio Container
+├── __init__.py     # one-line docstring; no I/O, config or startup on import
+├── contracts.py    # types that go in and out, types of the Container fields, ports, errors
+├── container.py    # @dataclass Container: fixed shape, declared empty fields (None or typed empty)
+├── pipeline.py     # class Pipe: get(), transformations that return Self, materialize()
+├── run.py          # def run / async def run: the visible composition, public entry
+└── encode/         # child: another complete package, with its own Container
     ├── __init__.py
     ├── contracts.py
     ├── container.py
@@ -42,74 +42,115 @@ notes/save/
     └── run.py
 ```
 
-| Arquivo | Papel | Não é |
+| File | Role | Is not |
 | --- | --- | --- |
-| `run.py` | Onde o pacote roda: `def run` é a entrada pública e a composição completa daquele nível. Comece a ler sempre por ele. | Reexport de outro módulo. Todo `run.py` define um `run` real (teste de arquitetura garante). |
-| `contracts.py` | Os tipos que o pacote troca e guarda: o pedido que entra (`SaveNote`), o produto que sai (`SavedNote`), os tipos dos campos do Container e das mutações (`CurrentRead`, `NoteDocument`), `Protocol`s de portas e erros. Cada tipo mora no pacote que o produz ou admite (`NoteName` em `notes/name/`, `NoteRecord` em `notes/save/`). | DTO HTTP, saco de tipos do projeto inteiro, lugar de lógica. |
-| `container.py` | Estado local fixo, preenchido progressivamente. Também é a fronteira para fixtures de "começar no meio". | Configuração, megacontexto, DTO público. |
-| `pipeline.py` | `Pipe` e seus métodos de transformação. | Lugar para esconder a sequência; a ordem fica em `run`. |
-| `__init__.py` | Identifica o pacote. | Lugar de startup, leitura de config, conexão ou plugin. |
+| `run.py` | Where the package runs: `def run` is the public entry and the complete composition of that level. Always start reading from it. | A re-export of another module. Every `run.py` defines a real `run` (the architecture test guarantees it). |
+| `contracts.py` | The types the package exchanges and keeps: the request that comes in (`SaveNote`), the product that goes out (`SavedNote`), the types of the Container fields and of the mutations (`CurrentRead`, `NoteDocument`), `Protocol`s of ports and errors. Each type lives in the package that produces or admits it (`NoteName` in `_shared/note_name/`, `NoteRecord` in `notes/save/`). | An HTTP DTO, a bag of types for the whole project, a place for logic. |
+| `container.py` | Fixed local state, filled progressively. It is also the boundary for "start in the middle" fixtures. | Configuration, megacontext, public DTO. |
+| `pipeline.py` | `Pipe` and its transformation methods. | A place to hide the sequence; the order stays in `run`. |
+| `__init__.py` | Identifies the package. | A place for startup, config reading, connection or plugin. |
 
-**Os cinco nomes são obrigatórios em toda pasta de `backend_logic`, e nenhum outro nome de módulo existe** (decisão do dono deste template, mais estrita que o Tavern, que tolera módulos soltos para tipos e mecanismos). A razão é legibilidade: quem abre uma pasta sem saber nada do domínio — o que é `codec`? o que faz `jsonvalue`? — ainda sabe onde começar (`run.py`, `def run`), o que o pacote guarda (`container.py`) e o que ele troca (`contracts.py`). Um mecanismo compartilhado não vira módulo solto (`files.py`, `locks.py`, `jsonvalue.py`): vira um pacote por operação, com nome legível (`storage/write/`, `storage/lock/`, `json/decode/`). `tests/test_style.py` garante os cinco arquivos e a ausência de qualquer outro.
+**The five names are mandatory in every `backend_logic` package, and no other module name exists** (owner decision of this template; see [template-decisions.md](template-decisions.md)). The reason is readability: whoever opens a folder knowing nothing about the domain — what is `codec`? what does `jsonvalue` do? — still knows where to start (`run.py`, `def run`), what the package keeps (`container.py`) and what it exchanges (`contracts.py`). A shared mechanism does not become a loose module (`files.py`, `locks.py`, `jsonvalue.py`): it becomes one package per operation, with a readable name (`storage/write/`, `storage/lock/`, `json/decode/`). The only two folders that are not complete packages are `_shared/` and the groupings inside it (below). `tests/test_style.py` guarantees the shape of each kind of folder and the absence of any other module.
 
-**Cada pasta é um pacote; a profundidade diz quem compartilha.** A árvore é a arquitetura. Cada pasta é um pacote completo com seu `run`, e o **lugar** dela na árvore declara quem a usa:
+**Depth says who uses it; `_shared/` says it is shared.** The tree is the architecture, and a package's **place** declares who uses it:
 
-- Usado por um único pacote: fica **dentro** dele, na profundidade máxima.
-- Usado por pacotes irmãos: sobe para o **pai comum** e fica no mesmo nível que eles, como mais um irmão.
-- Usado por famílias distantes: sobe até o menor ancestral comum — nunca direto à raiz "por precaução".
+- Used by a single package: stays **inside** it, as a child (`save/decode/` only serves `save`).
+- Used by two or more neighbours: goes to the **`_shared/` of their nearest common ancestor**. Never to the root "just in case", and never loose beside the use cases.
+- `_shared/` exists whenever there is a shared package at that level, even if it is only one. The unconditional rule is easier to follow (and to check) than "only when there are two", and the second shared package enters the folder without changing the path of the first.
+
+What counts as shared (the three conditions hold together):
+
+1. **Has its own contract:** typed request and product and a rule with an owner (path confinement, name policy, atomic write). A convenience function is not a package: it stays local in `pipeline.py`, and duplicating three lines is cheaper than coupling two packages.
+2. **Has two or more real consumers** among the children of that level, measured by the gate. Importing only the types (`contracts.py`) also counts: whoever uses the type depends on the rule of whoever defines it.
+3. **Is not a use case:** no `<Family>Request` names it. Domain using domain (one family calling another) is **not** sharing; each family stays in its place.
+
+The practical test to decide condition 1: **if two copies of this diverged, would it be a bug?** Two name policies or two ways of writing to disk, yes: it is authority or mechanism, goes to `_shared/`. Two ways of formatting a log message, no: it stays local, even duplicated.
 
 ```text
 backend_logic/
-├── run.py              # a porta única: match sobre BackendRequest → família
-├── contracts.py        # BackendRequest = RuntimeRequest | NotesRequest | RolesRequest | JsonRequest
-├── runtime/            # família: recursos de lifetime
-│   └── application/
-├── json/               # família: storage, roles e a borda HTTP a usam → raiz
-│   ├── validate/       # decode e encode o usam → nível deles
-│   ├── decode/
-│   └── encode/
-├── storage/            # família: toda família que persiste → raiz
-│   ├── path/           # read, write e scan o usam → nível deles
-│   ├── read/
-│   ├── write/
-│   ├── scan/
-│   └── lock/
-├── notes/              # família: run.py faz match sobre ListNotes | SaveNote
-│   ├── name/           # autoridade do nome: list, save e save/decode → nível de notes
+├── run.py              # the single door: match over BackendRequest
+├── contracts.py        # BackendRequest = NotesRequest | RolesRequest | DecodeText | EncodeValue
+├── _shared/            # used by more than one branch of the root
+│   ├── json/           # grouping: contracts.py with JsonValue; no run, no match
+│   │   ├── _shared/
+│   │   │   └── validate/   # decode and encode use it
+│   │   ├── decode/
+│   │   └── encode/
+│   └── note_name/      # name authority: notes and roles use it
+├── notes/              # family: PrepareResources | ListNotes | SaveNote
+│   ├── _shared/        # used by more than one process of notes
+│   │   └── storage/    # grouping: contracts.py with FileStore
+│   │       ├── _shared/
+│   │       │   └── path/   # read, write and scan use it
+│   │       ├── read/
+│   │       ├── write/
+│   │       ├── scan/
+│   │       └── lock/
+│   ├── prepare/        # lifetime resources: store, locks, clock
 │   ├── list/
 │   └── save/
-│       ├── decode/     # só save lê o documento antigo → dentro de save
-│       └── encode/     # só save escreve → dentro de save
-└── roles/              # família: papéis LLM
-    └── summarizer/
+│       ├── decode/     # only save reads the old document → inside save
+│       └── encode/     # only save writes → inside save
+└── roles/              # family: LLM roles
+    ├── summarizer/
+    └── digest/
 ```
 
-Ler o caminho de import já conta a história: `from .encode import run` é "meu filho"; `from ..name import run` é "um irmão que a família compartilha". Quando um segundo consumidor real aparece, o pacote **sobe** um nível e os imports dos dois são atualizados juntos; quando o último consumidor some, ele **desce** de volta. No Tavern, `catalog/presets/name/` é usado por `read`, `save`, `delete`, `avatar` e `list/entry`, e por isso mora ao lado deles.
+Three folder shapes, and only three:
 
-**A subida: família e processo.** Há dois tipos de pacote, e o `contracts.py` diz qual é:
+| Folder | Files | What it is |
+| --- | --- | --- |
+| package | the five | family, process or step; has `run` |
+| `_shared/` | only `__init__.py` (docstring) | shelf; not a code package |
+| grouping (child of `_shared/` without `run.py`) | `__init__.py` and `contracts.py` | gathers the operations of a mechanism (`json/`, `storage/`) and keeps the value they all exchange (`JsonValue`, `FileStore`); must have at least one subpackage |
 
-- **Família** declara `type <Família>Request = A | B` (ex.: `NotesRequest = ListNotes | SaveNote`). O `run.py` dela recebe o pedido tipado e um `match` visível desce ao filho que o atende. A raiz `backend_logic/` é uma família, e todo ancestral de uma família também é, então a leitura de qualquer caso de uso começa em `backend_logic/run.py` e desce `match` a `match` até uma folha.
-- **Processo** tem uma cadeia de etapas no `run.py`. Filhos de um processo (`save/decode`, `save/encode`) são etapas dele, não casos de uso, e não precisam de `match`.
+Rules of `_shared/`, all checked by `tests/test_style.py`:
+
+- **Never a family.** Nothing inside `_shared/` declares `<Family>Request` or has a `match`; the root never dispatches it as a family. Whoever needs it calls the operation's `run` directly (`decoding.run(DecodeText(...))`). This is also security: if the root dispatched `WriteDocument`, the frontend would write any file, skipping the rules of `notes`.
+- **It is private to the owner.** Only whoever is inside the parent of a `_shared/` imports it: `roles/` does not reach `notes/_shared/storage/`. The type that a consumer outside the mechanism needs (`FileStore`) lives in the grouping's `contracts.py`, not in a `_shared/` internal to it.
+- **Needs two consumers.** A package in `_shared/` used by a single neighbour moves down inside it.
+- **Shared outside `_shared/` is flagged.** A package that is not a use case, used by two neighbours or by someone outside its parent, needs to go to a `_shared/`.
+
+Reading the import path already tells the story: `from .encode import run` is "my child"; `from .._shared.path import run` is "a piece that my siblings and I share". When a second consumer appears in another branch, the package **moves up** to the `_shared/` of the new common ancestor, and the gate points to each import to change. When the last consumer goes away, it **moves down** again. In the template this has already happened once: the note name started in `notes/`, but `roles/summarizer` also uses `NoteName`, so it moved up to `backend_logic/_shared/note_name/`.
+
+**Measured on a large project, before adopting.** It was measured on a codebase of 201 packages and 76 levels with children, built in this style before `_shared/` existed. Counting any import, only 16 levels (21%) would gain `_shared/`; counting only `run` calls, 10 levels (13%). Most would end up with 1 or 2 packages. They were not hundreds. The real risk the measurement showed was another: at the root, 6 of 10 packages were "shared" only because one domain uses another. That is why condition 3 is mandatory, and not a detail. The script stays outside the template; the gate in `test_style.py` does the same count.
+
+**The climb: family and process.** There are two kinds of package, and `contracts.py` says which:
+
+- A **family** declares `type <Family>Request = A | B` (e.g. `NotesRequest = PrepareResources | ListNotes | SaveNote`). Its `run.py` receives the typed request and a visible `match` descends to the child that serves it. The root `backend_logic/` is a family, and every ancestor of a family is too, so the reading of any use case starts at `backend_logic/run.py` and descends `match` by `match` to a leaf.
+- A **process** has a chain of steps in `run.py`. Children of a process (`save/decode`, `save/encode`) are its steps, not use cases, and do not need `match`.
 
 ```python
 # backend_logic/notes/run.py
-async def run(
-    initial: NotesRequest, *, store: FileStore, locks: LockRegistry, clock: Clock
-) -> NotesResponse:
+async def run(initial: NotesRequest, *, resources: Resources | None) -> NotesResponse:
     pipe = Pipe.get(initial)
     match initial:
+        case PrepareResources():
+            pipe.prepare_resources(initial)
         case ListNotes():
-            pipe.list_notes(initial, store=store)
+            if resources is None:
+                raise RuntimeError("listing notes requires the prepared resources")
+            pipe.list_notes(initial, resources=resources)
         case SaveNote():
-            await pipe.save_note(initial, store=store, locks=locks, clock=clock)
+            if resources is None:
+                raise RuntimeError("saving a note requires the prepared resources")
+            await pipe.save_note(initial, resources=resources)
         case _:
             assert_never(initial)
     return pipe.materialize()
 ```
 
-Cada caso chama um método do `Pipe` da família que delega ao `run` do filho e grava o produto no Container; `@overload` no `run` dá a quem chama o tipo exato de cada caso. O `contracts.py` da família só importa os contratos dos filhos, e os filhos nunca importam o da família: assim não há ciclo. Quando um produto legítimo pode ser `None` (JSON `null`), o Container o guarda embrulhado (`Validated(value)`), para que "o ramo rodou e devolveu `None`" não se confunda com "o ramo não rodou".
+Each case calls a method of the family's `Pipe` that delegates to the child's `run` and stores the product in the Container. An intermediate family **only dispatches**: it returns the `<Family>Response` union declared in `contracts.py` and has no `@overload`. The family's `contracts.py` only imports the children's contracts, and the children never import the family's: this way there is no cycle. When a legitimate product can be `None` (JSON `null`), the Container keeps it wrapped (`Validated(value)`), so that "the branch ran and returned `None`" is not confused with "the branch did not run".
 
-### 2.1. Exemplo mínimo completo
+**Overload only at the root; the exact product comes from the process.**
+
+- `backend_logic/run.py` has one `@overload` per use case. It is the public contract, read from top to bottom as the backend's menu: each request, what it requires and what it returns. The frontend needs it to receive `NoteNames`, and not the union.
+- Whoever, inside the backend, needs an exact product calls the `run` of the **process** that produces it (`lazy from backend_logic._shared.json.encode import run as encoding`, `lazy from backend_logic.notes._shared.storage.lock import run as locking`), never the family's. The process's `materialize()` already returns the exact type, and mypy checks that against the body.
+- A family's `run` is only imported by the parent's `pipeline.py`, that is, in the climb.
+- Reason: an overload is a promise that mypy does **not** check against each `case`. In a test with `run(EncodeValue) -> int`, with the body returning `str`, the `run.py` of the family that dispatched JSON passed clean and only the callers broke. One block only, at the root and covered by `tests/test_backend_run.py`, leaves fewer unverified promises than one block per family.
+- `tests/test_style.py` fails an overload in a family that is not the root and an import of a family's `run` outside the parent.
+
+### 2.1. Minimal complete example
 
 `contracts.py`
 
@@ -134,7 +175,7 @@ class Container:
     input: ListNotes | None = None
     files: tuple[str, ...] | None = None
     stems: tuple[str, ...] | None = None  # candidates, not yet admitted
-    names: tuple[NoteName, ...] | None = None  # admitted by notes/name
+    names: tuple[NoteName, ...] | None = None  # admitted by _shared/note_name
 ```
 
 `pipeline.py`
@@ -153,11 +194,11 @@ class Pipe:
 
     def scan_directory(self, *, store: FileStore, relative: str) -> Self:
         """Set files directly beneath relative through storage. Read-only I/O."""
-        self.container.files = storing.run(ScanDirectory(store, relative))
+        self.container.files = scanning.run(ScanDirectory(store, relative))
         return self
 
     def admit_names(self) -> Self:
-        """Require stems; set names admitted by the shared notes/name authority. No I/O."""
+        """Require stems; set names admitted by the shared note_name authority. No I/O."""
         ...
         self.container.names = tuple(naming.run(stem) for stem in stems)
         return self
@@ -185,78 +226,78 @@ def run(initial: ListNotes, *, store: FileStore) -> NoteNames:
     )
 ```
 
-O template em `backend_logic/notes/` contém este exemplo completo, o irmão compartilhado `name/`, um processo assíncrono com filhos, lock, commit e recibo (`save/`) e a família que despacha entre eles (`notes/run.py`). O confinamento de caminho e o I/O não ficam em `list`: são de `storage/path` e `storage/scan`, chamados por `storing.run(ScanDirectory(...))`.
+The template in `backend_logic/notes/` contains this complete example, an asynchronous process with children, lock, commit and receipt (`save/`), the lifetime resources (`prepare/`), the disk mechanism in `notes/_shared/storage/` and the family that dispatches among them (`notes/run.py`). The name authority is in `backend_logic/_shared/note_name/`, because `roles` also uses it. Path confinement and I/O do not live in `list`: they belong to `storage/_shared/path` and `storage/scan`, called by `scanning.run(ScanDirectory(...))` (`lazy from backend_logic.notes._shared.storage.scan import run as scanning`).
 
 ---
 
-## 3. Vocabulário canônico
+## 3. Canonical vocabulary
 
-### 3.1. Nomes definidos (não variar)
+### 3.1. Defined names (do not vary)
 
-| Nome | Significado único |
+| Name | Single meaning |
 | --- | --- |
-| `run.py` / `run(...)` | Entrada pública e composição completa do nível, inclusive `async def run`. |
-| `Pipe` | Objeto fluente local. Sempre se chama `Pipe`; o pacote dá o domínio. |
-| `get(initial)` | Factory com a preparação inicial declarada. Lê-se "o processo **recebe** tal coisa". Não é getter de propriedade. |
-| `Container` | Dataclass tipada, forma fixa, preenchimento progressivo. |
-| `self.container` | Único lugar dos intermediários. Nada de `self.prompt`, `self.response` soltos. |
-| Métodos fluentes | Transformam o container e retornam `Self`. |
-| `materialize(...)` | Terminal: devolve a saída tipada, não `self` nem o container inteiro. |
+| `run.py` / `run(...)` | Public entry and complete composition of the level, including `async def run`. |
+| `Pipe` | Local fluent object. Always called `Pipe`; the package gives the domain. |
+| `get(initial)` | Factory with the declared initial preparation. Reads as "the process **receives** such a thing". Not a property getter. |
+| `Container` | Typed dataclass, fixed shape, progressive filling. |
+| `self.container` | The only place for intermediates. No loose `self.prompt`, `self.response`. |
+| Fluent methods | Transform the container and return `Self`. |
+| `materialize(...)` | Terminal: returns the typed output, not `self` nor the whole container. |
 
-**Proibido:** aliases que dividam a linguagem — `have`/`start`/`create` no lugar de `get`; `result`/`build`/`finish` no lugar de `materialize`; `self.context`/`self.state` no lugar de `self.container`. Um tipo de domínio chamado `CallResult` é permitido: nome de tipo não é método terminal.
+**Forbidden:** aliases that split the language — `have`/`start`/`create` in place of `get`; `result`/`build`/`finish` in place of `materialize`; `self.context`/`self.state` in place of `self.container`. A domain type called `CallResult` is allowed: a type name is not a terminal method.
 
-### 3.2. Chamando um filho
+### 3.2. Calling a child
 
-O pai importa o `run` do filho com um alias que nomeia a ação ou o produto daquele processo. No Tavern a forma varia — `run as exchanging`, `run as authorizing`, mas também `run as select_provider`, `run as estimate_prompt`, `run as evidence` — então **não há regra de gerúndio**; o template usa o módulo com alias (`encoding.run(...)`) por legibilidade:
+The parent imports the child's `run` **module** with an alias that names the action or the product of that process, and calls `<alias>.run(...)`. The gerund (`encoding`, `reading`, `locking`) is the template's custom, not a rule: `naming`, `validating` and `locating` also name the action. What does not vary is the form `<alias>.run(...)`, which makes visible at the call site that another process begins there:
 
 ```python
-lazy from .encode import run as encoding  # template (lazy: §6.1)
-from ..credentials.resolve import run as authorizing  # Tavern, módulo
-from ..estimate.run import run as estimate_prompt  # Tavern, função
+lazy from .encode import run as encoding              # child (lazy: §6.1)
+lazy from .._shared.path import run as locating       # piece shared with the siblings
+lazy from backend_logic.notes._shared.storage.write import run as writing  # direct operation
 
 ...
 self.container.document = encoding.run(self.container.record)
 ```
 
-O que importa: fica visível na leitura que ali começa outro processo completo, com seu próprio Container, e o pai importa `run`/`contracts` do filho, nunca `pipeline` ou helpers internos.
+What matters: it is visible in the reading that another complete process begins there, with its own Container, and the parent imports `run`/`contracts` of the child, never `pipeline` or internal helpers.
 
-### 3.3. Verbos com significado consistente
+### 3.3. Verbs with consistent meaning
 
-Não são fases obrigatórias. O vocabulário do Tavern tem só **cinco** verbos propostos pelo coordenador (`validate_*`, `prepare_*`, `project_*`, `admit_*`, `commit`); quando aparecem, significam isto:
+They are not mandatory phases. The vocabulary has only **five** verbs (`validate_*`, `prepare_*`, `project_*`, `admit_*`, `commit`); when they appear, they mean this:
 
-| Verbo | Significa | Não significa |
+| Verb | Means | Does not mean |
 | --- | --- | --- |
-| `validate_*` | Verificar um contrato e falhar explicitamente. | Corrigir, completar ou inventar valores. |
-| `prepare_*` | Preparar valor/recurso usado depois. | Ausência de I/O — declarar efeitos na docstring. |
-| `project_*` | Construir visão delimitada de dados existentes. | Ampliar audiência ou transformar opinião em fato. |
-| `admit_*` | Aceitar uma proposta conforme a autoridade daquele domínio. | Parsing; e diferente de `commit`. |
-| `commit` | Publicar uma mudança canônica **uma vez**, guardando um recibo/resultado explícito. | Atualizar um campo local; nem rótulo genérico para rede ou inferência. |
+| `validate_*` | Check a contract and fail explicitly. | Fix, complete or invent values. |
+| `prepare_*` | Prepare a value/resource used later. | Absence of I/O — declare effects in the docstring. |
+| `project_*` | Build a bounded view of existing data. | Widen the audience or turn opinion into fact. |
+| `admit_*` | Accept a proposal according to that domain's authority. | Parsing; and it is different from `commit`. |
+| `commit` | Publish a canonical change **once**, keeping an explicit receipt/result. | Update a local field; nor a generic label for network or inference. |
 
-Todo o resto são **nomes locais legíveis**, não vocabulário: `resolve_directory`, `read_entries`, `select_names`, `sort_names` (o próprio Tavern diz que "não viraram um framework universal"), e efeitos com nome de domínio como `open_response`, `capture_response`, `publish_checkpoint`, `publish_state`. Neste template, `resolve_path`, `read_current`, `decode_reply`, `encode_record` são do mesmo tipo. Se um deles se repetir com o mesmo significado em vários pacotes, proponha-o em `vocabulary.md`.
+Everything else is **readable local names**, not vocabulary: in the template, `resolve_path`, `read_current`, `scan_directory`, `select_stems`, `sort_names`, `decode_reply`, `encode_record`; in a real project, effects with a domain name such as `open_response` or `publish_checkpoint`. They do not become a universal framework. If one of them repeats with the same meaning in several packages, propose it in `vocabulary.md`.
 
-### 3.4. Sufixos de tipo (usar só quando o significado existe)
+### 3.4. Type suffixes (use only when the meaning exists)
 
-| Sufixo | Significado | Exemplo |
+| Suffix | Meaning | Example |
 | --- | --- | --- |
-| `<Verbo><Objeto>` (pedido) / `<Família>Request` | Caso de uso tipado que entra num `run`, nomeado pelo que pede; a família une os pedidos dos filhos numa `type <Família>Request = A \| B`. Substitui o `Input`/`Output` genérico: o nome do pedido é legível fora do pacote. | `SaveNote`, `ListNotes`, `NotesRequest` |
-| `*Definition` | Configuração autoral ainda não materializada. | `ScenarioDefinition` |
-| `*Candidate` / `Proposed*` | Dado ainda **não admitido**. | `UpdateCandidate`, `ProposedEvent` |
-| `Admitted*` / `Checked*` | Marca a conclusão de uma admissão/checagem específica. | `AdmittedSchema`, `CheckedSubmission` |
-| `*Draft` | Cópia isolada a mutar antes do commit. | `UndoDraft`, `InputDraft` |
-| `*View` | Visão projetada para um consumidor (dono, leitor). | `PresetView` |
-| `*Document` | Forma serializada na fronteira externa. | `PrivateConfigDocument` |
-| `*Receipt` | Evidência do resultado de um efeito — **não** implica sucesso ou durabilidade. | `WriteReceipt` |
-| `*State` | Estado canônico ou vocabulário fechado do domínio. | `SessionState` |
-| `*Entity` | Entidade canônica tipada por espécie (união discriminada). | `ActorEntity` |
-| `*Error` / `*ResultError` | Falha. `*ResultError` = falha terminal **depois de trabalho concluído**, que não autoriza retry/replay: preserva o recibo quando houve publicação (`PresetResultError`) ou marca falha interna não-retentável sem recibo (`ValueResultError`, `CaptureResultError`). | `PresetResultError`, `ValueResultError` |
+| `<Verb><Object>` (request) / `<Family>Request` | Typed use case that enters a `run`, named by what it asks for; the family unites the children's requests in a `type <Family>Request = A \| B`. Replaces the generic `Input`/`Output`: the request name is readable outside the package. | `SaveNote`, `ListNotes`, `NotesRequest` |
+| `*Definition` | Authored configuration not yet materialized. | `ScenarioDefinition` |
+| `*Candidate` / `Proposed*` | Data **not yet admitted**. | `UpdateCandidate`, `ProposedEvent` |
+| `Admitted*` / `Checked*` | Marks the completion of a specific admission/check. | `AdmittedSchema`, `CheckedSubmission` |
+| `*Draft` | Isolated copy to mutate before the commit. | `UndoDraft`, `InputDraft` |
+| `*View` | View projected for a consumer (owner, reader). | `PresetView` |
+| `*Document` | Serialized form at the external boundary. | `PrivateConfigDocument` |
+| `*Receipt` | Evidence of the result of an effect — does **not** imply success or durability. | `WriteReceipt` |
+| `*State` | Canonical state or closed vocabulary of the domain. | `SessionState` |
+| `*Entity` | Canonical entity typed by kind (discriminated union). | `ActorEntity` |
+| `*Error` / `*ResultError` | Failure. `*ResultError` = terminal failure **after completed work**, which does not authorize retry/replay: it preserves the receipt when there was publication (`PresetResultError`) or marks a non-retryable internal failure without a receipt (`ValueResultError`, `CaptureResultError`). | `PresetResultError`, `ValueResultError` |
 
-Estados de leitura que não se confundem: `None` no Container = **etapa não executada**; `Missing` = ausência observada; `Found` = leitura concluída (mesmo que o conteúdo seja `null`). Para etapas: `stage` = tentativa atual; `completed_stage` = chamada que retornou.
+Reading states that must not be confused: `None` in the Container = **step not executed**; `Missing` = observed absence; `Found` = completed read (even if the content is `null`). For steps: `stage` = current attempt; `completed_stage` = call that returned.
 
-Identidades nominais (`NewType`) distinguem valores que não podem ser trocados (`ActorId` ≠ `SessionId`), mas construir um `NewType` **não valida nada**; a validação é uma etapa própria.
+Nominal identities (`NewType`) distinguish values that cannot be swapped (`ActorId` ≠ `SessionId`), but constructing a `NewType` **validates nothing**; validation is a step of its own.
 
-### 3.5. Docstring de método = contrato local
+### 3.5. Method docstring = local contract
 
-A exigência é **semântica**: cada método declara campos lidos, exigidos, escritos e preservados, e seus efeitos e falhas. O guia do Tavern escreve isso em prosa livre ("Lê input; preenche prompt; não faz I/O…"). Métodos sem docstring no código do Tavern não são precedente: a fonte está inacabada. Este template usa uma fraseologia curta em inglês, que é **escolha do template**, não fórmula obrigatória:
+The requirement is **semantic**: each method declares fields read, required, written and preserved, and its effects and failures. Free prose also works ("Reads input; fills prompt; does no I/O…"). This template uses a short phrasing in English, which is a **template choice**, not a mandatory formula:
 
 ```python
 def read_current(self, *, store: FileStore) -> Self:
@@ -270,21 +311,21 @@ def commit(self, *, store: FileStore) -> Self:
     """
 ```
 
-`Require …` (campos lidos/exigidos) · `set …` (campos escritos) · efeitos permitidos/proibidos · falhas. `-> Self` sozinho não é contrato: os campos do Container também são entradas e saídas.
+`Require …` (fields read/required) · `set …` (fields written) · allowed/forbidden effects · failures. `-> Self` alone is not a contract: the Container's fields are also inputs and outputs.
 
-### 3.6. Novos nomes
+### 3.6. New names
 
-Nome recorrente novo vai para `docs/design/vocabulary.md` na seção de **propostas**, com significado e limite. Só o dono do projeto promove uma proposta a nome definido. Usar um nome no código não o torna padrão.
+A new recurring name goes to `docs/design/vocabulary.md` in the **proposals** section, with meaning and limit. Only the project owner promotes a proposal to a defined name. Using a name in the code does not make it a standard.
 
 ---
 
-## 4. Composição no `run`
+## 4. Composition in `run`
 
-### 4.1. Indentação semântica
+### 4.1. Semantic indentation
 
-Aprofundar a indentação comunica sequência/dependência. O formatter achataria essa escada, então **o `pyproject.toml` do template exclui `backend_logic/**/run.py` do `ruff format`** (com `force-exclude = true`, para valer também quando um editor ou agente passa o caminho do arquivo). Nenhum `run.py` precisa de `# fmt: off`/`# fmt: on`, e `tests/test_style.py` proíbe esses escapes no `backend_logic`. O linter continua valendo no `run.py` (imports, tamanho de linha, nomes, bugs); quem escreve o `run` é responsável pela forma dele. Os trechos de `run` citados em `docs/**/*.md` ficam fora do formatter pelo mesmo motivo. Todo o resto do código segue o formatter.
+Deepening the indentation communicates sequence/dependency. The formatter would flatten this ladder, so **the template's `pyproject.toml` excludes `backend_logic/**/run.py` from `ruff format`** (with `force-exclude = true`, so that it also applies when an editor or agent passes the file path). No `run.py` needs `# fmt: off`/`# fmt: on`, and `tests/test_style.py` forbids those escapes in `backend_logic`. The linter still applies to `run.py` (imports, line length, names, bugs); whoever writes the `run` is responsible for its form. The `run` snippets quoted in `docs/**/*.md` stay outside the formatter for the same reason. All the rest of the code follows the formatter.
 
-### 4.2. Branches, loops e locks ficam no `run`
+### 4.2. Branches, loops and locks stay in `run`
 
 ```python
 async def run(
@@ -298,7 +339,7 @@ async def run(
     )
     if pipe.container.name is None:
         raise RuntimeError("note save requires validated name before locking")
-    async with storing.run(SelectLock(locks, kind="note", name=pipe.container.name)):
+    async with locking.run(SelectLock(locks, kind="note", name=pipe.container.name)):
         pipe.read_current(store=store)
         if initial.replace:
             pipe.admit_replacement()
@@ -319,11 +360,11 @@ async def run(
             raise NoteResultError(pipe.container.receipt) from error
 ```
 
-Note: lock adquirido no `run`, não escondido num método; o ramo é um `if` legível; a falha após o commit vira `*ResultError` com o recibo, para ninguém refazer o trabalho já publicado.
+Note: the lock is acquired in `run`, not hidden in a method; the branch is a readable `if`; the failure after the commit becomes `*ResultError` with the receipt, so nobody redoes work already published.
 
 ### 4.3. Async
 
-`def`/`async def` conforme o trabalho; awaits visíveis. Python não encadeia métodos sobre coroutine não aguardada, então **método async fica numa linha `await pipe.x()` própria**, e a escada recomeça em `pipe` logo abaixo (`backend_logic/roles/summarizer/run.py`):
+`def`/`async def` according to the work; awaits visible. Python does not chain methods over an un-awaited coroutine, so **an async method goes on its own `await pipe.x()` line**, and the ladder restarts at `pipe` right below (`backend_logic/roles/summarizer/run.py`):
 
 ```python
 pipe = (
@@ -342,13 +383,13 @@ return (
 )
 ```
 
-Encadear depois do `await` é Python válido (`(await pipe.call(model=model)).decode_reply()…`), mas **este template não usa** (escolha do template por legibilidade; o dono pode revê-la no `architecture-log.md`): com uma etapa async parece fluente; com duas vira `(await (await pipe.a()).b()).c()`, e o ponto de suspensão some no meio dos parênteses. Na linha própria, o `await` fica na mesma coluna do `async with` e dos `if` do `run`, onde quem lê procura o que pode ser interrompido — o que importa para locks e cancelamento. Coroutine-proxy ou metaclasse para manter a fluência continuam proibidos.
+Chaining after the `await` is valid Python (`(await pipe.call(model=model)).decode_reply()…`), but **this template does not use it** (template choice for readability; the owner may revisit it in `architecture-log.md`): with one async step it looks fluent; with two it becomes `(await (await pipe.a()).b()).c()`, and the suspension point disappears in the middle of the parentheses. On its own line, the `await` sits at the same column as the `async with` and the `if`s of the `run`, where the reader looks for what can be interrupted — which matters for locks and cancellation. Coroutine-proxy or metaclass to keep fluency remain forbidden.
 
-### 4.4. Paralelismo
+### 4.4. Parallelism
 
-Paralelo é o pai chamando **pacotes irmãos ao mesmo tempo** num `asyncio.TaskGroup`: cada `create_task` é o `run` de um pacote completo, com seu próprio Container. Nada de executor genérico de fases nem lista de callbacks — o grupo fica visível no `run` do pai, e cada ramo é um processo que se lê sozinho.
+Parallel is the parent calling **sibling packages at the same time** in an `asyncio.TaskGroup`: each `create_task` is the `run` of a complete package, with its own Container. No generic phase executor nor list of callbacks — the group stays visible in the parent's `run`, and each branch is a process that reads on its own.
 
-O mesmo vale para **fan-out sobre itens**: N chamadas do `run` de um pacote irmão, cada uma com seu Container. Exemplo real do template, `backend_logic/roles/digest/run.py` (um resumo por nota, testado em `tests/test_roles_digest.py`):
+The same holds for **fan-out over items**: N calls of a sibling package's `run`, each with its own Container. Real example from the template, `backend_logic/roles/digest/run.py` (one summary per note, tested in `tests/test_roles_digest.py`):
 
 ```python
 async def run(initial: DigestNotes, *, model: Model) -> Digest:
@@ -375,11 +416,11 @@ async def run(initial: DigestNotes, *, model: Model) -> Digest:
     )
 ```
 
-O orçamento (`max_notes=8`) é validado antes de qualquer chamada paga; nota duplicada é rejeitada, não deduplicada. O teste prova a concorrência de verdade: o fake só responde a primeira nota depois que a segunda termina, então uma versão sequencial travaria e estouraria o `asyncio.timeout`. O digest sai na ordem das notas, não na de conclusão. Uma rejeição cancela as chamadas pendentes, e quem chama trata o `ExceptionGroup` com `except*`.
+The budget (`max_notes=8`) is validated before any paid call; a duplicate note is rejected, not deduplicated. The test proves real concurrency: the fake only answers the first note after the second finishes, so a sequential version would hang and blow the `asyncio.timeout`. The digest comes out in the order of the notes, not in completion order. A rejection cancels the pending calls, and the caller handles the `ExceptionGroup` with `except*`.
 
-Com ramos **diferentes**, o esqueleto é o mesmo, uma tarefa por ramo:
+With **different** branches, the skeleton is the same, one task per branch:
 
-Alinhar operações comunica ramos do mesmo grupo paralelo **somente** quando a execução realmente os agenda assim. Whitespace não cria concorrência.
+Aligning operations communicates branches of the same parallel group **only** when the execution really schedules them that way. Whitespace does not create concurrency.
 
 ```python
 lazy from .images import run as images
@@ -387,7 +428,7 @@ lazy from .optional import run as optional
 lazy from .thumbnail import run as thumbnail
 
 
-async def prepare_optional(source: Source) -> Optional:  # ramo sequencial dentro do grupo
+async def prepare_optional(source: Source) -> Optional:  # sequential branch inside the group
     downloaded = await optional.run(source)
     return await thumbnail.run(downloaded)
 
@@ -395,57 +436,74 @@ async def prepare_optional(source: Source) -> Optional:  # ramo sequencial dentr
 async with asyncio.TaskGroup() as group:
     optional_task = group.create_task(prepare_optional(source))
     images_task = group.create_task(images.run(source))
-# Integração depois da barreira, em ordem fixa — não pela ordem de conclusão.
+# Integration after the barrier, in fixed order — not in completion order.
 pipe.container.optional = optional_task.result()
 pipe.container.images = images_task.result()
 ```
 
-- Os filhos recebem inputs explícitos e devolvem outputs; só o pai escreve no seu Container, e só depois da barreira.
-- Independência é semântica, não só campos diferentes. Escritas exclusivas são permitidas; dois writers no mesmo estado canônico, não.
-- Integrar resultados deterministicamente, não por ordem de conclusão.
-- Cancelamento não desfaz efeitos externos nem vira sucesso.
-- `TaskGroup`, `gather` e variantes têm políticas de falha diferentes: escolha e declare.
+- The children receive explicit inputs and return outputs; only the parent writes to its Container, and only after the barrier.
+- Independence is semantic, not just different fields. Exclusive writes are allowed; two writers on the same canonical state, no.
+- Integrate results deterministically, not in completion order.
+- Cancellation does not undo external effects nor become success.
+- `TaskGroup`, `gather` and variants have different failure policies: choose and declare.
 
 ### 4.5. `materialize`
 
-Fecha o processo. Pode executar trabalho explicitamente adiado quando esse é o contrato, mas o nome não prova que nada aconteceu antes nem autoriza fila escondida de efeitos. Repetir `materialize` não é automaticamente seguro: declarar consumo único quando houver inferência paga ou commit.
+Closes the process. It may execute explicitly deferred work when that is the contract, but the name does not prove that nothing happened before nor authorize a hidden effect queue. Repeating `materialize` is not automatically safe: declare single consumption when there is paid inference or commit.
 
 ---
 
 ## 5. Container
 
-- Constructor cria `self.container = Container()` de verdade, com campos vazios declarados. Nada de `dict`, `SimpleNamespace`, `kwargs` ou atributos dinâmicos.
-- Forma fixa; valores progressivos. **`None` inicial é legítimo, não obrigatório**: acumuladores e fases usam vazio tipado (`attempt_count: int = 0`, `refresh_used: bool = False`, `authorizations: tuple[...] = ()`, `scope: Scope = "prepare"`). Cada método declara o que lê, exige, escreve e preserva.
-- `get(initial)` pode fazer a preparação inicial declarada — copiar/destacar a entrada (`deepcopy`), inicializar acumuladores — mas não esconde carregamento global.
-- Campo obrigatório ausente falha **explicitamente** (`if x is None: raise RuntimeError(...)`), nunca com `assert` — `python -O` remove asserts.
-- Sem defaults inventados. Se `None` também é uma saída válida, distinguir de "etapa não executada" com um tipo próprio (`AvatarSelection(value=None)`, `Literal[True] | None`).
-- Uma instância de `Pipe`/`Container` por invocação. Nunca compartilhar estado de request entre chamadas.
-- `materialize` não expõe o container. Container não é DTO público, prompt nem schema persistido.
+- The constructor really creates `self.container = Container()`, with declared empty fields. No `dict`, `SimpleNamespace`, `kwargs` or dynamic attributes.
+- Fixed shape; progressive values. **Initial `None` is legitimate, not mandatory**: accumulators and phases use a typed empty (`attempt_count: int = 0`, `refresh_used: bool = False`, `authorizations: tuple[...] = ()`, `scope: Scope = "prepare"`). Each method declares what it reads, requires, writes and preserves.
+- `get(initial)` may do the declared initial preparation — copy/detach the input (`deepcopy`), initialize accumulators — but does not hide global loading.
+- A missing required field fails **explicitly** (`if x is None: raise RuntimeError(...)`), never with `assert` — `python -O` removes asserts.
+- No invented defaults. If `None` is also a valid output, distinguish it from "step not executed" with a type of its own (`AvatarSelection(value=None)`, `Literal[True] | None`).
+- One `Pipe`/`Container` instance per invocation. Never share request state between calls.
+- `materialize` does not expose the container. A Container is not a public DTO, prompt nor persisted schema.
 
 ---
 
-## 6. Tipagem estrita
+## 6. Strict typing
 
-Objetivo não é mypy verde: é **reduzir o que o implementador precisa adivinhar**.
+The goal is not green mypy: it is to **reduce what the implementer has to guess**.
 
-- Proibido: `Any`, coleções sem parâmetro (`dict`, `list`), imports não tipados tratados como `Any`, `cast`/`# type: ignore` para esconder contrato incompleto.
-- Não trocar `Any` por `object`/`dict[str, object]`/`JsonValue` em todo o domínio só para passar na regra.
-- Usar dataclass, `TypedDict`, `Protocol`, uniões discriminadas, `Literal`, `Enum`, `NewType` quando expressarem distinções reais.
-- Escolhas finitas conhecidas são `Literal`/`Enum`, não `str`.
-  No template: códigos de erro mostrados ao cliente (`NoteConflictCode`, `NoteValidationCode`), a fase da escrita atômica (`WritePhase`) e o idioma do papel (`Language`). Um código novo vira mudança de contrato visível no tipo, e não uma string que alguém inventou num `raise`.
-- Número com papel próprio é `NewType`, não `int`: `Revision` não se troca por `schema_version`, por contagem nem por tamanho. A etapa que admite o valor é a que o constrói (`Revision(current.revision + 1)`); o teste que precisa de um valor o escreve explicitamente (`Revision(1)`).
-- Distinguir o que não pode ser confundido: identidade vs referência, proposta vs fato admitido, documento bruto vs objeto validado, ausência vs etapa não executada, resultado vs recibo de efeito.
-- `dict` é legítimo para chaves dinâmicas, com chave e valor tipados. Registro de campos conhecidos declara os campos.
-- **Dado não confiável é amplo só na fronteira de ingestão** (JSON recursivamente tipado, `bytes`). A admissão produz tipos específicos; a indeterminação não atravessa os pacotes. API de biblioteca que retorna `Any` ganha uma fronteira de contenção.
-- A força do tipo corresponde ao conhecimento da etapa: input ainda sujeito a rejeição não é anotado como admitido.
-- Tipos não provam intervalos, relações entre campos, privacidade ou ordem temporal: declarar pré-condições e validar em runtime.
-- Nunca relaxar o gate (excluir módulo, desligar regra) para obter verde.
+- Forbidden: `Any`, unparameterized collections (`dict`, `list`), untyped imports treated as `Any`, `cast`/`# type: ignore` to hide an incomplete contract.
+- Do not swap `Any` for `object`/`dict[str, object]`/`JsonValue` across the whole domain just to pass the rule.
+- Use dataclass, `TypedDict`, `Protocol`, discriminated unions, `Literal`, `Enum`, `NewType` when they express real distinctions.
+- Known finite choices are `Literal`/`Enum`, not `str`.
+  In the template: error codes shown to the client (`NoteConflictCode`, `NoteValidationCode`), the atomic write phase (`WritePhase`) and the role's language (`Language`). A new code becomes a contract change visible in the type, and not a string someone invented in a `raise`.
+- A number with its own role is `NewType`, not `int`: `Revision` is not swapped for `schema_version`, for a count nor for a size. The step that admits the value is the one that constructs it (`Revision(current.revision + 1)`); a test that needs a value writes it explicitly (`Revision(1)`).
+- Distinguish what cannot be confused: identity vs reference, proposal vs admitted fact, raw document vs validated object, absence vs step not executed, result vs effect receipt.
+- `dict` is legitimate for dynamic keys, with typed key and value. A record of known fields declares the fields.
+- **Untrusted data is wide only at the ingestion boundary** (recursively typed JSON, `bytes`). Admission produces specific types; indeterminacy does not cross the packages. A library API that returns `Any` gets a containment boundary.
+- The strength of the type corresponds to the step's knowledge: input still subject to rejection is not annotated as admitted.
+- Types do not prove ranges, relations between fields, privacy or temporal order: declare preconditions and validate at runtime.
+- Never relax the gate (exclude a module, turn off a rule) to get green.
 
-Configuração de referência (`pyproject.toml` do template): `mypy strict = true`, `disallow_any_explicit`, `disallow_any_unimported`, e `disallow_any_expr` nos pacotes onde for viável; Ruff com `E,F,I,N,W,UP,B,C4,SIM`.
+Reference configuration (the template's `pyproject.toml`): `mypy strict = true`, `disallow_any_explicit`, `disallow_any_unimported`, **global** `disallow_any_expr` (logic, frontend and tests), `warn_unreachable`, `strict_bytes` and the extra codes `ignore-without-code`, `redundant-expr`, `redundant-self`, `truthy-bool`, `truthy-iterable`, `possibly-undefined`, `unused-awaitable`, `explicit-override`, `mutable-override`, `exhaustive-match` and `deprecated`; Ruff with `E,F,I,N,W,UP,B,C4,SIM`. The test `tests/test_config.py` fails if this configuration is loosened.
 
-### 6.1. Imports `lazy` (Python 3.15, PEP 810)
+**`Any` only as a last resort, and contained.** When a library hands over `Any` with no typed alternative, it stays trapped in a boundary module with its own name, which narrows the value (`isinstance`, strict decoding) before returning it. Only those modules are exempt from `disallow_any_expr` in `pyproject.toml`. The template has three, explained in [template-decisions.md](template-decisions.md) (C2); a new boundary in the project requires an owner decision and an entry in `architecture-log.md`:
 
-O template exige Python 3.15 por um motivo: `lazy import`. **Todo import de topo de módulo em `backend_logic` e `backend_frontend` é `lazy`**:
+| Boundary | `Any` from whom | Comes out as |
+| --- | --- | --- |
+| `backend_logic/_shared/json/decode` | `json.loads` and its hooks | `JsonValue` |
+| `tests/test_config.py` | `tomllib.loads` | values narrowed by `isinstance` |
+| `tests/wire_client.py` | Starlette's `TestClient` (reaches mypy entirely as `Any`) | `WireResponse(status: int, body: JsonValue)` |
+
+Before opening a boundary, look for the typed way out. In the template these were:
+
+- **FastAPI decorators** (`@router.get`) are typed with `Any`: routes are registered with `router.add_api_route(path, function, methods=[...])`.
+- **A library `Any` parameter** (`JSONResponse(content)`, `json.dumps(obj)`): pass an already annotated value (`body: JsonValue = {...}`) so the literal is not inferred with `Any`.
+- **Overriding in fakes:** `@override` on every redefined method. Extra data of the fake lives in an attribute of the fake, not in a subclass of the Container, because narrowing an inherited mutable attribute is unsafe (`mutable-override`).
+- **Purposely wrong call** in a runtime guard test: `# type: ignore[call-overload, misc]`, always with code and comment. They are the template's only `ignore`s, both in `tests/test_backend_run.py`.
+
+**Review of raw `str`/`int` (what does not become its own type).** Input still subject to rejection stays `str` (`SaveNote.name`, the storage's `relative`s): whoever admits it is `_shared/note_name` or `storage/_shared/path`, and annotating before that would lie. Free text (`body`, prompt, `ModelReply.content`) stays `str`. Call budgets stay `int` with a name on the parameter (convention in `vocabulary.md`).
+
+### 6.1. `lazy` imports (Python 3.15, PEP 810)
+
+The template requires Python 3.15 for one reason: `lazy import`. **Every top-level module import in `backend_logic` and `backend_frontend` is `lazy`**:
 
 ```python
 lazy import asyncio
@@ -455,116 +513,116 @@ lazy from backend_logic.roles.summarizer import run as summarizing
 lazy from .container import Container
 ```
 
-O módulo só é carregado no primeiro uso do nome. Importar `backend_logic.run` não carrega `storage/write` nem `roles/digest` até um pedido passar por eles, então a startup carrega só o caminho que usa. A árvore de pacotes pode crescer sem que cada `contracts.py` puxe o projeto inteiro.
+The module is only loaded on first use of the name. Importing `backend_logic.run` does not load `storage/write` nor `roles/digest` until a request passes through them, so startup loads only the path it uses. The package tree can grow without each `contracts.py` pulling in the whole project.
 
-Regras da linguagem:
+Language rules:
 
-- `lazy` só vale no topo do módulo. Import dentro de função, classe ou `try` fica normal, e o gate não o cobra.
-- `from __future__ import ...` e `import *` não podem ser lazy.
-- **O erro muda de lugar.** Um módulo ausente, ou um efeito colateral de import, só aparece no primeiro uso, não ao abrir o arquivo. Por isso os testes que exercitam cada caminho (o `run` real de cada pacote) são o que garante que os imports resolvem.
+- `lazy` only applies at the top of the module. An import inside a function, class or `try` stays normal, and the gate does not charge it.
+- `from __future__ import ...` and `import *` cannot be lazy.
+- **The error changes place.** A missing module, or an import side effect, only shows up on first use, not when opening the file. That is why the tests that exercise each path (the real `run` of each package) are what guarantees the imports resolve.
 
-**Fallback:** se um pacote não funcionar como lazy (registro em tempo de import, efeito colateral do qual o código depende, ferramenta que ainda não entende a sintaxe), troque o `lazy import` por `import` normal naquele ponto. O comportamento é o mesmo, só eager. Para o gate aceitar a troca:
+**Fallback:** if a package does not work as lazy (registration at import time, a side effect the code depends on, a tool that does not yet understand the syntax), replace the `lazy import` with a normal `import` at that point. The behaviour is the same, only eager. For the gate to accept the swap:
 
-1. registre o módulo em `EAGER_IMPORTS` (em `tests/test_style.py`) com o motivo;
-2. registre a exceção no `architecture-log.md`.
+1. register the module in `EAGER_IMPORTS` (in `tests/test_style.py`) with the reason;
+2. record the exception in `architecture-log.md`.
 
-Para voltar o projeto inteiro a eager, remova todos os `lazy `. O template foi verificado assim: mesmos testes verdes e mypy limpo. Nesta build do CPython, `-X lazy_imports` aceita só `all` e `normal` e não desliga o lazy explícito, então o fallback é mudar o código, não passar uma flag.
+To return the whole project to eager, remove every `lazy `. The template was verified this way: same tests green and mypy clean. In this CPython build, `-X lazy_imports` accepts only `all` and `normal` and does not turn off explicit lazy, so the fallback is to change the code, not to pass a flag.
 
 Gate: `tests/test_style.py::test_every_top_level_import_is_lazy`.
 
 ---
 
-## 7. Pais, filhos e compartilhamento
+## 7. Parents, children and sharing
 
-- Pacote é processo vertical completo e pode aninhar quanto for útil. Evitar pacote-deus para "manter a sequência junta".
-- O pai passa **inputs explícitos** e integra **outputs** dos filhos. Não entrega seu Container inteiro a cada filho. Referências read-only e acesso delimitado a um draft são permitidos.
-- Descer ao filho para ver detalhes é desejado; caçar a continuação do pai em callbacks e dispatchers dispersos, não.
-- **Helpers são locais por padrão** (§2: a profundidade diz quem compartilha). Um consumidor: fica local, na profundidade máxima. Dois irmãos realmente precisando: subir para o pai comum, ao lado deles, não para a raiz. Dois usos são condição necessária para compartilhar, **não obrigação**. Duplicação simples pode ler melhor — exceto política autoritativa (abaixo).
-- Usos imaginados não justificam abstração. Mas política autoritativa única (privacidade, validação, commit, retry) não é duplicada.
-- Pacotes novos podem ser movidos, divididos ou substituídos — atualizando produtores, consumidores, imports e testes **juntos**. Código novo não é legado: sem wrappers de compatibilidade, parsers duplos ou aliases.
+- A package is a complete vertical process and may nest as much as is useful. Avoid a god-package to "keep the sequence together".
+- The parent passes **explicit inputs** and integrates the children's **outputs**. It does not hand its whole Container to each child. Read-only references and bounded access to a draft are allowed.
+- Descending to the child to see details is desired; hunting for the parent's continuation in scattered callbacks and dispatchers is not.
+- **Helpers are local by default** (§2: depth says who shares). One consumer: stays local, at maximum depth. Two siblings really needing it: move up to the common parent, beside them, not to the root. Two uses are a necessary condition to share, **not an obligation**. Simple duplication may read better — except authoritative policy (below).
+- Imagined uses do not justify abstraction. But a single authoritative policy (privacy, validation, commit, retry) is not duplicated.
+- New packages may be moved, split or replaced — updating producers, consumers, imports and tests **together**. New code is not legacy: no compatibility wrappers, double parsers or aliases.
 
 ---
 
-## 8. Literais, parâmetros e configuração
+## 8. Literals, parameters and configuration
 
-- Escolha fixa local é literal no ponto de chamada: `.prepare_request(output_tokens=384, response_mode="structured")`. Não promover mecanicamente a constante de módulo, Settings ou env.
-- Um parâmetro pode existir mesmo quando o valor "poderia ser buscado dentro": torna a origem visível e a transformação reproduzível em teste.
+- A fixed local choice is a literal at the call site: `.prepare_request(output_tokens=384, response_mode="structured")`. Do not mechanically promote it to a module constant, Settings or env.
+- A parameter may exist even when the value "could be fetched inside": it makes the origin visible and the transformation reproducible in a test.
 
   ```python
-  pipe.prepare_prompt(language="pt-BR")  # decisão fixa local
-  pipe.prepare_prompt(language=parent.container.language)  # vem do pai
+  pipe.prepare_prompt(language="pt-BR")  # fixed local decision
+  pipe.prepare_prompt(language=parent.container.language)  # comes from the parent
   ```
 
-- Valores reais de usuário/sessão/ambiente/credencial **não** são literais. A composição inicial que os possui carrega uma vez e passa explicitamente. Filhos não consultam env/config por conta própria.
-- **Pacote global não é variável global.** Um dispatcher LLM compartilhado recebe client/config por argumento; não há singleton importado por todos.
-- "Carregar uma vez e passar" não significa megacontainer repassado inteiro a todos.
+- Real user/session/environment/credential values are **not** literals. The initial composition that owns them loads once and passes explicitly. Children do not consult env/config on their own.
+- **A global package is not a global variable.** A shared LLM dispatcher receives client/config by argument; there is no singleton imported by everyone.
+- "Load once and pass" does not mean a megacontainer passed whole to everyone.
 
 ---
 
-## 9. Efeitos, commit e recibos
+## 9. Effects, commit and receipts
 
-- Efeitos externos (escrita, rede, inferência paga) acontecem em métodos com nome e docstring que os declaram, com nome de domínio quando não são publicação canônica (no código do Tavern: `open_response`, `capture_response`, `publish_checkpoint`). `commit` é reservado a "publicar uma mudança canônica com recibo".
-- `commit` publica uma vez, guarda um `*Receipt` no Container e propaga a falha sem retry escondido. Recibo registra o estado real: `NOT_PUBLISHED` (alvo não substituído — **não** "nenhum efeito": diretórios pais podem ter sido criados), `PUBLISHED_NOT_DURABLE` (bytes visíveis, durabilidade a crash não confirmada; nunca tratar como rollback), `DURABLE`.
-- Escrita durável: arquivo temporário no mesmo diretório → flush → fsync → replace atômico (o template traz `storage/write/`, chamado por `storing.run(WriteDocument(...))`).
-- **Nunca fazer offload de uma escrita para thread (`asyncio.to_thread`) sob um lock async**: cancelar a coroutine libera o lock, mas não para o efeito no filesystem.
-- Mutar drafts isolados; avançar a revisão canônica uma vez.
-- **Distinguir falha pré-commit de pós-commit.** Falha na própria publicação propaga o erro de escrita com seu recibo (`AtomicWriteError.receipt`); falha **depois** da publicação (montar o resultado, observador, apresentação) vira `*ResultError` carregando o recibo. Em ambos os casos, nunca regenerar trabalho persistido. Descartar draft não desfaz efeito externo.
-- Recursos (config, client, store, locks) têm **um dono explícito** com lifetime declarado. Sem caches paralelos virando autoridade.
-- Toda operação sobre um recurso compartilhado (inclusive leituras) usa o lock do dono. A reentrância é **decisão explícita por recurso**: no Tavern, locks async de sessão/nome são não reentrantes (o pai adquire, o filho declara "requer lock já possuído"; um filho que readquire o mesmo lock é bug), enquanto o lock de configuração é um `RLock` reentrante por decisão, compartilhado por load/update/save.
-- Vários locks: ordem fixa de aquisição documentada (Tavern: sessões em ordem lexical de ID, depois locks nomeados por `(namespace, nome)`), liberação na ordem inversa.
-- **Nunca evictar locks** do registro ao apagar um registro: um waiter ou referência retida poderia sobrepor um lock novo. O registro cresce com os nomes válidos; limite os nomes na validação, não removendo locks.
+- External effects (write, network, paid inference) happen in methods whose name and docstring declare them, with a domain name when they are not canonical publication (e.g. `open_response`, `capture_response`, `publish_checkpoint`). `commit` is reserved for "publish a canonical change with a receipt".
+- `commit` publishes once, keeps a `*Receipt` in the Container and propagates the failure without hidden retry. The receipt records the real state: `NOT_PUBLISHED` (target not replaced — **not** "no effect": parent directories may have been created), `PUBLISHED_NOT_DURABLE` (bytes visible, crash durability not confirmed; never treat as rollback), `DURABLE`.
+- Durable write: temporary file in the same directory → flush → fsync → atomic replace (the template brings `storage/write/`, called by `writing.run(WriteDocument(...))`).
+- **Never offload a write to a thread (`asyncio.to_thread`) under an async lock**: cancelling the coroutine releases the lock, but does not stop the filesystem effect.
+- Mutate isolated drafts; advance the canonical revision once.
+- **Distinguish pre-commit failure from post-commit failure.** A failure in the publication itself propagates the write error with its receipt (`AtomicWriteError.receipt`); a failure **after** the publication (assembling the result, observer, presentation) becomes `*ResultError` carrying the receipt. In both cases, never regenerate persisted work. Discarding a draft does not undo an external effect.
+- Resources (config, client, store, locks) have **one explicit owner** with declared lifetime. No parallel caches becoming authority.
+- Every operation on a shared resource (including reads) uses the owner's lock. Reentrancy is an **explicit per-resource decision**. E.g.: the template's named locks (`storage/lock`) are non-reentrant `asyncio.Lock`s: the parent's `run` acquires, the child declares in the docstring "requires lock already held", and a child that reacquires the same lock is a bug (deadlock). A configuration lock shared by load/update/save may be a reentrant `RLock`, if the owner decides and records it.
+- Several locks: documented fixed acquisition order (e.g. entities in lexical ID order, then named locks by `(kind, name)`), release in reverse order.
+- **Never evict locks** from the registry when deleting a record: a waiter or retained reference could overlap a new lock. The registry grows with the valid names; limit the names in validation, not by removing locks.
 
 ---
 
-## 10. Duas aplicações e direção de dependência
+## 10. Two applications and dependency direction
 
 | `backend_logic` | `backend_frontend` |
 | --- | --- |
-| Domínio, agentes, pipelines, validação, transações, persistência, abstrações de provider/plugin. | Rotas HTTP, encoding de request/response, status/erros/SSE, assets, segurança de transporte. |
-| **Nunca** importa FastAPI, Starlette, pydantic, DTOs de transporte ou `backend_frontend`. | Entra **só** por `backend_logic/run.py` (`from backend_logic import run as backend`) e importa do lógico só módulos `contracts` (os tipos dos pedidos e produtos). Nunca importa o `run` de uma família, `pipeline`, `container` ou `helpers`. Recursos (store, locks, relógio) são preparados no `lifespan` por `backend.run(PrepareResources(...))` e guardados num slot local do frontend (`ResourceSlot`); `tests/test_architecture.py` garante a porta única. |
+| Domain, agents, pipelines, validation, transactions, persistence, provider/plugin abstractions. | HTTP routes, request/response encoding, status/errors/SSE, assets, transport security. |
+| **Never** imports FastAPI, Starlette, pydantic, transport DTOs or `backend_frontend`. | Enters **only** through `backend_logic/run.py` (`from backend_logic import run as backend`) and imports from the logic only `contracts` modules (the types of requests and products). Never imports a family's `run`, `pipeline`, `container` or `helpers`. Resources (store, locks, clock) are prepared in the `lifespan` by `backend.run(PrepareResources(...))` and kept in a local frontend slot (`ResourceSlot`); `tests/test_architecture.py` guarantees the single door. |
 
-O Tavern diz explicitamente: **"não impor cegamente detalhes do estilo ao framework frontend"**. As regras duras do frontend são direção de dependência e não duplicar negócio; nomes como `create_app`/`build_router` são idioma do framework HTTP, não violação do vocabulário de pipelines.
+Style rule: **do not blindly impose the style's details on the frontend framework**. The frontend's hard rules are dependency direction and not duplicating business; names such as `create_app`/`build_router` are HTTP framework idiom, not a violation of the pipelines vocabulary.
 
-Decodificação do corpo HTTP também é fronteira de ingestão. **Escolha deste template** (não regra herdada do Tavern): ler bytes, passar pela mesma família JSON estrita do lógico pela porta única (`backend.run(DecodeText(...))`: duplicatas, NaN, surrogates, profundidade) e checar a forma de wire numa dataclass, respondendo com `JSONResponse`. O template evita pydantic porque seus modelos introduzem `Any` e o `disallow_any_explicit` global falharia. Se o dono preferir pydantic na borda, registre a decisão e o ajuste de gate em `architecture-log.md`; no `backend_logic`, nunca.
+Decoding the HTTP body is also an ingestion boundary. **This template's choice** (the style itself does not require it): read bytes, pass through the same strict JSON of the logic (`_shared/json/decode`) through the single door (`backend.run(DecodeText(...))`: duplicates, NaN, surrogates, depth) and check the wire shape in a dataclass, responding with `JSONResponse`. The template avoids pydantic because its models introduce `Any` and the global `disallow_any_explicit` would fail. If the owner prefers pydantic at the edge, record the decision and the gate adjustment in `architecture-log.md`; in `backend_logic`, never.
 
-Handlers HTTP não resolvem defaults de domínio, não mutam estado, não aplicam regras de visibilidade e não duplicam regra de negócio: isso é um caso de uso lógico com `run` próprio.
+HTTP handlers do not resolve domain defaults, do not mutate state, do not apply visibility rules and do not duplicate business rules: that is a logical use case with its own `run`.
 
-`tests/test_architecture.py` do template garante por AST: direção das dependências, `run.py` com `run` real e import de pacotes sem rede/abertura de dados.
-
----
-
-## 11. Agentes LLM
-
-Padrões que o Tavern consolidou para qualquer projeto com papéis de modelo:
-
-- **Papéis são provider-neutral.** Um papel (`roles/<papel>/`) monta contexto, pede uma chamada a uma porta (`Protocol`) e admite a resposta. Diferenças de provider vivem em adapters (`llm/providers/<provider>/`).
-- **Privacidade antes do contexto.** O que o modelo não pode saber não entra no prompt. Nunca "pedir ao modelo para esquecer". Declare em `AGENTS.md` o que cada papel pode saber (no Tavern: IDs internos não chegam a prompts nem à prosa do leitor — invariante daquele domínio; outro produto pode precisar de IDs no prompt).
-- **Proposta ≠ fato.** A saída do modelo é um `*Candidate`/`Proposed*`; vira estado só após `admit_*` sob a autoridade do domínio, e só então `commit`.
-- **Saída estruturada com contrato e validação local obrigatórios.** Recurso de schema não suportado falha em vez de sumir.
-- **Uma chamada lógica possui seus retries.** Orçamento explícito, backoff no `run`, recibos/evidência antes e depois do dispatch. Erro de evidência/observador não autoriza replay da geração.
-- **Evidência privada e sanitizada**, chaveada pelas identidades do seu domínio (no Tavern: `session_id`, `turn_number`, `agent`); segredos nunca em logs, URLs, argumentos de CLI ou chat. **Sanitizar não desclassifica**: o que é segredo do domínio continua segredo depois de sanitizado; fragmentos crus de streaming podem reconstruir segredos.
-- **Capturar o binding completo (provider, modelo, config, client) antes de esperar um lock**, para que uma troca concorrente de configuração não altere uma operação em voo.
-- **Isolamento por request no client HTTP compartilhado**: requisições diretas não herdam headers, params nem cookie jar do client; auth flows e redirects desligados; a troca fecha sua resposta, não o client do dono.
-- **Orçamento único de recuperação de credencial**, separado dos retries de geração e compartilhado por todas as tentativas (no Tavern: 401 pode renovar uma vez; 403 nunca renova).
-- **Orçamentos de contexto em tokens**, não truncamento arbitrário por caracteres. Se só existe heurística (`chars/4`), chame-a de estimativa, não de tokenizer.
-- Se o produto tem contrato de forma para texto gerado (no Tavern: pontuação da prosa), normalize num lugar central, nos campos selecionados, nunca sobre identificadores/URLs.
-- **Mocks são o padrão.** Chamada real de modelo/rede/OAuth exige autorização explícita e finita; credenciais presentes não são autorização. Testes reais ficam sob marker (`-m llm`) desligado por padrão.
+The template's `tests/test_architecture.py` guarantees by AST: dependency direction, `run.py` with a real `run` and package imports without network/opening of data.
 
 ---
 
-## 12. Processo: escrever, tipar, ensaiar, só então preencher
+## 11. LLM agents
 
-### 12.1. Sequência
+Patterns for any project with model roles:
 
-1. Levantar capacidades, entradas/saídas, autoridades e efeitos (das fontes, do produto, do dono).
-2. Escrever contratos e composições **reais** no código.
-3. Verificar tipagem, imports e vínculos.
-4. **Ensaiar os runs com fakes tipados**, incluindo falhas pertinentes.
-5. Corrigir lacunas/contradições reveladas.
-6. Walkthrough com o dono, se a autorização exigir.
-7. Só então delegar o preenchimento de métodos ou conjuntos coesos.
+- **Roles are provider-neutral.** A role (`roles/<role>/`) assembles context, asks for a call to a port (`Protocol`) and admits the response. Provider differences live in adapters (`llm/providers/<provider>/`).
+- **Privacy before context.** What the model may not know does not enter the prompt. Never "ask the model to forget". Declare in `AGENTS.md` what each role may know (e.g.: "internal IDs do not reach the prompt" is one domain's invariant; another product may need IDs in the prompt).
+- **Proposal ≠ fact.** The model's output is a `*Candidate`/`Proposed*`; it becomes state only after `admit_*` under the domain's authority, and only then `commit`.
+- **Structured output with mandatory contract and local validation.** An unsupported schema feature fails instead of vanishing.
+- **One logical call owns its retries.** Explicit budget, backoff in `run`, receipts/evidence before and after the dispatch. An evidence/observer error does not authorize replaying the generation.
+- **Private, sanitized evidence**, keyed by your domain's identities (e.g. `session_id`, `turn_number`, `agent`); secrets never in logs, URLs, CLI arguments or chat. **Sanitizing does not declassify**: what is a domain secret remains a secret after being sanitized; raw streaming fragments can reconstruct secrets.
+- **Capture the complete binding (provider, model, config, client) before waiting for a lock**, so that a concurrent configuration swap does not alter an in-flight operation.
+- **Per-request isolation in the shared HTTP client**: direct requests do not inherit the client's headers, params or cookie jar; auth flows and redirects turned off; the exchange closes its response, not the owner's client.
+- **A single credential-recovery budget**, separate from the generation retries and shared by all attempts (e.g.: 401 may renew once; 403 never renews).
+- **Context budgets in tokens**, not arbitrary truncation by characters. If only a heuristic exists (`chars/4`), call it an estimate, not a tokenizer.
+- If the product has a shape contract for generated text (e.g. prose punctuation), normalize in one central place, on the selected fields, never over identifiers/URLs.
+- **Mocks are the default.** A real model/network/OAuth call requires explicit and finite authorization; credentials being present is not authorization. Real tests stay under a marker (`-m llm`) turned off by default.
 
-Lógica ainda não implementada fica explícita:
+---
+
+## 12. Process: write, type, rehearse, only then fill in
+
+### 12.1. Sequence
+
+1. Survey capabilities, inputs/outputs, authorities and effects (from the sources, the product, the owner).
+2. Write **real** contracts and compositions in the code.
+3. Verify typing, imports and links.
+4. **Rehearse the runs with typed fakes**, including pertinent failures.
+5. Fix the gaps/contradictions revealed.
+6. Walkthrough with the owner, if the authorization requires it.
+7. Only then delegate the filling in of methods or cohesive sets.
+
+Logic not yet implemented stays explicit:
 
 ```python
 def prepare_prompt(self, *, language: str) -> Self:
@@ -572,155 +630,155 @@ def prepare_prompt(self, *, language: str) -> Self:
     raise NotImplementedError("summarizer.prepare_prompt")
 ```
 
-Nunca retornar sucesso vazio para fingir funcionamento. `pass` em função com retorno pode esconder retorno inválido. Mocks ficam em testes, nunca como fallback de produção.
+Never return an empty success to pretend it works. `pass` in a function with a return can hide an invalid return. Mocks stay in tests, never as a production fallback.
 
-### 12.2. O ciclo e o retorno ao esqueleto
+### 12.2. The cycle and the return to the skeleton
 
-**Levantar → escrever/reajustar contratos e composições → ensaiar → implementar/delegar → integrar → confrontar de novo com as fontes.**
+**Survey → write/readjust contracts and compositions → rehearse → implement/delegate → integrate → confront again with the sources.**
 
-Depois de integrar, decidir:
+After integrating, decide:
 
-- **Poucas lacunas locais** (capacidade e autoridade já representadas): corrigir direto e conferir consumidores.
-- **Ausências estruturais numerosas ou acopladas** (faltam processos, ownership, transações, ligações): voltar ao desenho em código, ampliar e reajustar o que já existe, ensaiar, e só depois outra onda.
+- **Few local gaps** (capability and authority already represented): fix directly and check consumers.
+- **Numerous or coupled structural absences** (missing processes, ownership, transactions, links): go back to the design in code, widen and readjust what already exists, rehearse, and only then another wave.
 
-Erro de typing repetido pode denunciar tipo errado, autoridade ausente ou pacote no lugar errado. Não acumular conversões, parâmetros e métodos para tornar o gate verde. Também não redesenhar tudo por um typo.
+A repeated typing error can denounce a wrong type, a missing authority or a package in the wrong place. Do not accumulate conversions, parameters and methods to turn the gate green. Also do not redesign everything over a typo.
 
-### 12.3. Ensaio (simulação do esqueleto)
+### 12.3. Rehearsal (skeleton simulation)
 
-- Fakes **tipados** que respeitam a assinatura e preenchem campos coerentes com as pré/pós-condições. Nada de mocks permissivos que aceitam qualquer atributo.
-- Exercitar **runs reais**, trocando apenas folhas/fronteiras não implementadas — sem reescrever a orquestração dentro do teste.
-- Dados significativos cruzando pacotes; verificar campos preservados/alterados, ordem, handoffs, branches, falhas, cancelamento.
-- Fake que devolve constante desconectada do input torna o teste vacuamente verde.
-- Teste de concorrência sem `await` dentro da seção crítica não observa o lock: ensaie o lock com um holder que espera dentro dele (ver `tests/test_notes_save.py`). Guardas também precisam de teste: um scanner de imports que só lia `node.module` passava vazio.
-- Mostrar casos que o contrato rejeita quando isso esclarece uma distinção, inclusive **verificações estáticas negativas proporcionais** (trocar IDs/estágios nominais deve falhar no mypy). Não deixar fixtures propositalmente inválidas misturadas ao código de produção.
-- Semântica de cópia/snapshot precisa ser ensaiada em runtime: nome, tipo ou `Self` não congelam objetos nem garantem cópia.
-- **Registrar quais ligações foram simuladas**, com que premissas e quais ainda não foram. O registro não pode se verificar apenas contra si mesmo.
-- **Código e teste podem compartilhar a mesma interpretação errada.** Confrontar com fontes e consumidores reais. Corrigir a fixture errada; não afrouxar a implementação correta.
+- **Typed** fakes that respect the signature and fill in fields coherent with the pre/postconditions. No permissive mocks that accept any attribute.
+- Exercise **real runs**, swapping only unimplemented leaves/boundaries — without rewriting the orchestration inside the test.
+- Meaningful data crossing packages; verify preserved/changed fields, order, handoffs, branches, failures, cancellation.
+- A fake that returns a constant disconnected from the input makes the test vacuously green.
+- A concurrency test without `await` inside the critical section does not observe the lock: rehearse the lock with a holder that waits inside it (see `tests/test_notes_save.py`). Guards also need a test: an import scanner that only read `node.module` passed empty.
+- Show cases the contract rejects when that clarifies a distinction, including **proportional negative static checks** (swapping nominal IDs/stages must fail in mypy). Do not leave purposely invalid fixtures mixed into production code.
+- Copy/snapshot semantics need to be rehearsed at runtime: a name, type or `Self` neither freezes objects nor guarantees a copy.
+- **Record which links were simulated**, with what premises and which were not yet. The record cannot be verified only against itself.
+- **Code and test can share the same wrong interpretation.** Confront with real sources and consumers. Fix the wrong fixture; do not loosen the correct implementation.
 
-### 12.4. Testes por pacote ou trecho
+### 12.4. Tests per package or stretch
 
-- A fronteira natural é o pacote/segmento: entrada, saída, sequência e efeitos conhecidos. Selecionar por risco e dúvida, não quota por método.
-- Mockar apenas o filho fora da investigação.
-- **Começar no meio:** preparar um Container válido naquela etapa e executar só o trecho suspeito. Nunca um estado que a pipeline real não produziria.
+- The natural boundary is the package/segment: known input, output, sequence and effects. Select by risk and doubt, not a per-method quota.
+- Mock only the child outside the investigation.
+- **Start in the middle:** prepare a valid Container at that step and execute only the suspect stretch. Never a state that the real pipeline would not produce.
 
 ```python
 pipe = Pipe.get(ListNotes())
-pipe.container.files = ("b.json", "a.txt")  # estado real logo após scan_directory
+pipe.container.files = ("b.json", "a.txt")  # real state right after scan_directory
 
 listed = pipe.select_stems(suffix=".json").admit_names().sort_names().materialize()
 ```
 
-- Testes default usam diretório de dados temporário, providers mockados e fixtures sintéticas. Dados reais nunca são fixture.
+- Default tests use a temporary data directory, mocked providers and synthetic fixtures. Real data is never a fixture.
 
 ---
 
-## 13. Coordenador como arquiteto; trabalho delegado
+## 13. Coordinator as architect; delegated work
 
-O coordenador é **arquiteto**, não o desenvolvedor padrão de todas as folhas: possui levantamento global, contratos, composições, ensaio e integração. Pode corrigir um gap local pequeno; com muitas lacunas, recupera o desenho e prepara outra onda.
+The coordinator (the **orchestrator model**, a frontier model) is the **architect**, not the default developer of all the leaves: it owns the global survey, contracts, compositions, rehearsal and integration. It may fix a small local gap; with many gaps, it recovers the design and prepares another wave. The session's subagents, on intermediate or smaller models, fill in only method bodies. The step-by-step of the waves, the delegation package template and the report format are in [construction.md](construction.md).
 
-**Pacote de delegação** (o que cada agente implementador recebe):
+**Delegation package** (what each implementer agent receives):
 
-- Assinatura, tipos, inputs/outputs, dependências.
-- Campos do Container lidos, exigidos, escritos e preservados.
-- Efeitos permitidos/proibidos, falhas, cancelamento, invariantes.
-- Fixtures/ensaios e oráculos do trecho.
-- **Arquivos sob seu ownership exclusivo**, sem permissão para redesenhar contratos consumidos.
+- Signature, types, inputs/outputs, dependencies.
+- Container fields read, required, written and preserved.
+- Allowed/forbidden effects, failures, cancellation, invariants.
+- Fixtures/rehearsals and oracles of the stretch.
+- **Files under its exclusive ownership**, without permission to redesign consumed contracts.
 
-O agente não reconstrói o sistema para descobrir o contrato. Se faltar informação ou o contrato for impossível, **reporta a lacuna** ao coordenador em vez de inventar. Sem edição simultânea no mesmo arquivo. Sem delegação recursiva, salvo decisão do dono.
+The agent does not rebuild the system to discover the contract. If information is missing or the contract is impossible, it **reports the gap** to the coordinator instead of inventing. No simultaneous editing of the same file. No recursive delegation, unless the owner decides otherwise.
 
-**Antes de julgar o resultado de uma onda, classificar a ausência:**
+**Before judging the result of a wave, classify the absence:**
 
-1. Erro de implementação — contrato e ligação existiam; a folha não cumpriu.
-2. Erro/omissão arquitetural — contrato insuficiente ou composição consumidora ausente.
-3. Capacidade não distribuída — nunca esteve nos escopos entregues.
+1. Implementation error — contract and link existed; the leaf did not fulfil it.
+2. Architectural error/omission — insufficient contract or missing consuming composition.
+3. Undistributed capability — was never in the delivered scopes.
 
-Redistribuir um método resolve (1); não inventa a autoridade de (2) nem conclui (3).
+Redistributing a method solves (1); it does not invent the authority of (2) nor conclude (3).
 
-Número de agentes, testes passando e percentuais **não** são evidência de conclusão ou qualidade. Ganho de taxa de acerto por contrato preciso é hipótese a medir, não promessa.
-
----
-
-## 14. Documentação honesta
-
-- **README de pacote** (quando o pacote tem decisões relevantes): o que ele é, o que **não** é, inputs/responsabilidades, correções explícitas em relação à fonte, e o que falta. Ex.: "This is a projected context, **not** a complete prompt."
-- **Vocabulário** (`docs/design/vocabulary.md`): nomes definidos pelo dono e propostas em observação, com limite de cada uma.
-- **Registro de arquitetura** (`docs/design/architecture-log.md`; no Tavern o equivalente é `docs/design/architecture-experiment.md`), por decisão: observação e fonte → estado (ausente/ensaiado/implementado/integrado/verificado) → diagnóstico (1/2/3 acima) → decisão e razão → evidência necessária e o que ela **não** provará → resultado posterior.
-- O registro aponta para o código; não vira árvore paralela que pareça pronta. Documentos históricos não são reescritos para fingir cobertura passada.
-- Ao reportar: "X ensaios com folhas finitas e N casos reais demonstram estes handoffs, **não** Y". Nunca "funciona" sem evidência do componente real.
+Number of agents, passing tests and percentages are **not** evidence of completion or quality. A hit-rate gain from a precise contract is a hypothesis to measure, not a promise.
 
 ---
 
-## 15. Dados, segredos e experimentos
+## 14. Honest documentation
 
-- Dados reais e cópias são privados, ignorados pelo git e nunca fixtures.
-- Nunca imprimir configs/tokens nem colocá-los em arquivos versionados, storage do browser, URLs, argumentos ou chat.
-- Mudança de representação persistida exige versão de schema e decisão explícita: migração autorizada ou rejeição clara. Sem parsers duplos nem defaults legados.
-- Rascunhos/scratch em `.dumps/` (ignorado).
-- Rede, modelo pago, OAuth, commit, push e publicação exigem autorização explícita.
+- **Package README** (when the package has relevant decisions): what it is, what it is **not**, inputs/responsibilities, explicit corrections relative to the source, and what is missing. E.g.: "This is a projected context, **not** a complete prompt."
+- **Vocabulary** (`docs/design/vocabulary.md`): names defined by the owner and proposals under observation, with the limit of each one.
+- **Architecture log** ([`architecture-log.md`](architecture-log.md), of the new project, born empty), per decision: observation and source → state (absent/rehearsed/implemented/integrated/verified) → diagnosis (1/2/3 above) → decision and reason → evidence needed and what it will **not** prove → later result.
+- The log points to the code; it does not become a parallel tree that looks finished. Historical documents are not rewritten to pretend past coverage.
+- When reporting: "X rehearsals with finite leaves and N real cases demonstrate these handoffs, **not** Y". Never "it works" without evidence from the real component.
 
 ---
 
-## 16. Anti-padrões
+## 15. Data, secrets and experiments
 
-| Sintoma | Por que é errado | Fazer |
+- Real data and copies are private, ignored by git and never fixtures.
+- Never print configs/tokens nor put them in versioned files, browser storage, URLs, arguments or chat.
+- A change of persisted representation requires a schema version and an explicit decision: authorized migration or clear rejection. No double parsers nor legacy defaults.
+- Drafts/scratch in `.dumps/` (ignored).
+- Network, paid model, OAuth, commit, push and publication require explicit authorization.
+
+---
+
+## 16. Anti-patterns
+
+| Symptom | Why it is wrong | Do |
 | --- | --- | --- |
-| `self.result`, `self.ctx`, `have()`, `build()` | Divide o vocabulário | `self.container`, `get`, `materialize` |
-| `def x(self) -> Self: pass` | Finge sucesso | `raise NotImplementedError("pacote.metodo")` |
-| `assert self.container.x` | Some com `-O` | `if ... is None: raise RuntimeError(...)` |
-| `MAX_TOKENS = 384` no topo, usado uma vez | Falsa configuração | literal no ponto de chamada |
-| `from app.settings import SETTINGS` dentro de um filho | Estado global | passar explicitamente do dono |
-| `dict[str, Any]` atravessando o domínio | Esconde o contrato | campos declarados; JSON só na ingestão |
-| Engine de steps/registry de fases | Esconde a ordem | ordem fixa no `run` |
-| Pai entrega seu Container inteiro ao filho | Acoplamento difuso | inputs explícitos |
-| `helpers/` com função de um consumidor | Abstração prematura | manter local |
-| Wrapper de compatibilidade para código novo | Mantém duas verdades | migrar consumidores juntos |
-| Handler HTTP aplicando regra de negócio | Lógica fora do dono | novo `run` lógico |
-| Mock que aceita qualquer atributo | Teste vacuamente verde | fake tipado coerente |
-| Retry depois do commit porque o log falhou | Duplica efeito | `*ResultError` com recibo |
-| `asyncio.to_thread(storing.run, WriteDocument(...))` sob lock | Cancelamento libera o lock com a escrita ainda rodando | escrita síncrona dentro do lock |
-| Módulo solto (`files.py`, `jsonvalue.py`, `utils.py`) | Leitor não sabe onde começar nem o que é | pacote por operação com os cinco arquivos |
-| Frontend chamando `notes.run` ou `storage` direto | Porta lateral; a subida some | `backend_logic/run.py` + `contracts` |
-| `validate_*` que faz `.strip()` | Corrige em vez de verificar | rejeitar, ou etapa de normalização nomeada |
-| "Testes verdes, está pronto" | Confunde mecânica com produto | relatar o que foi e não foi provado |
+| `self.result`, `self.ctx`, `have()`, `build()` | Splits the vocabulary | `self.container`, `get`, `materialize` |
+| `def x(self) -> Self: pass` | Pretends success | `raise NotImplementedError("package.method")` |
+| `assert self.container.x` | Vanishes with `-O` | `if ... is None: raise RuntimeError(...)` |
+| `MAX_TOKENS = 384` at the top, used once | False configuration | literal at the call site |
+| `from app.settings import SETTINGS` inside a child | Global state | pass explicitly from the owner |
+| `dict[str, Any]` crossing the domain | Hides the contract | declared fields; JSON only at ingestion |
+| Step engine/phase registry | Hides the order | fixed order in `run` |
+| Parent hands its whole Container to the child | Diffuse coupling | explicit inputs |
+| `helpers/` with a single consumer's function | Premature abstraction | keep it local |
+| Compatibility wrapper for new code | Keeps two truths | migrate consumers together |
+| HTTP handler applying a business rule | Logic outside the owner | new logical `run` |
+| Mock that accepts any attribute | Vacuously green test | coherent typed fake |
+| Retry after the commit because the log failed | Duplicates the effect | `*ResultError` with receipt |
+| `asyncio.to_thread(writing.run, WriteDocument(...))` under lock | Cancellation releases the lock with the write still running | synchronous write inside the lock |
+| Loose module (`files.py`, `jsonvalue.py`, `utils.py`) | Reader does not know where to start nor what it is | package per operation with the five files |
+| Frontend calling `notes.run` or `storage` directly | Side door; the climb disappears | `backend_logic/run.py` + `contracts` |
+| `validate_*` that does `.strip()` | Fixes instead of checking | reject, or a named normalization step |
+| "Tests green, it's done" | Confuses mechanics with product | report what was and was not proven |
 
 ---
 
 ## 17. Checklist
 
-- [ ] O projeto é navegável por arquivos, tipos e chamadas reais antes da lógica?
-- [ ] Toda pasta tem os cinco arquivos e nenhum outro? Todo caso de uso desce de `backend_logic/run.py` por `match` até a folha?
-- [ ] Cada `run` mostra sua história sem achatar a dos filhos?
-- [ ] Vocabulário consistente; nomes novos registrados como proposta?
-- [ ] Container com vazios declarados no constructor (`None` ou vazio tipado), campos precisos, intermediários só nele?
-- [ ] Nenhum conhecimento de domínio escondido em `Any`, coleções vagas ou casts?
-- [ ] Tipos distinguem alternativas reais; pré-condições cobrem o que tipos não provam?
-- [ ] Literais/parâmetros mostram decisões e origens, sem globals nem megacontainer?
-- [ ] Compartilhamento tem consumidores reais e melhora a leitura? Cada pacote mora no menor ancestral comum dos seus consumidores?
-- [ ] Paralelo é um `TaskGroup` de `run`s irmãos, integrado em ordem fixa depois da barreira?
-- [ ] Indentação, awaits, efeitos e barreiras contam a mesma história?
-- [ ] Runs ensaiados com fakes tipados e dados coerentes entre pacotes?
-- [ ] Consigo isolar um trecho preparando um Container intermediário válido?
-- [ ] Um agente entende seu método sem inventar arquitetura?
-- [ ] Lacuna é local ou exige reajustar o esqueleto?
-- [ ] Produtores e consumidores reorganizados juntos, sem wrapper?
-- [ ] Falha pré-commit e pós-commit distinguidas, com recibo?
-- [ ] Não confundi tipagem/simulação com produto pronto, nem hipótese com ganho medido?
+- [ ] Is the project navigable by real files, types and calls before the logic?
+- [ ] Does every folder have the five files and no other? Does every use case descend from `backend_logic/run.py` by `match` down to the leaf?
+- [ ] Does each `run` show its story without flattening that of the children?
+- [ ] Consistent vocabulary; new names recorded as a proposal?
+- [ ] Container with declared empties in the constructor (`None` or typed empty), precise fields, intermediates only in it?
+- [ ] No domain knowledge hidden in `Any`, vague collections or casts?
+- [ ] Do types distinguish real alternatives; do preconditions cover what types do not prove?
+- [ ] Do literals/parameters show decisions and origins, without globals nor megacontainer?
+- [ ] Does sharing have real consumers and improve the reading? Does each package live at the nearest common ancestor of its consumers?
+- [ ] Is parallel a `TaskGroup` of sibling `run`s, integrated in fixed order after the barrier?
+- [ ] Do indentation, awaits, effects and barriers tell the same story?
+- [ ] Runs rehearsed with typed fakes and coherent data between packages?
+- [ ] Can I isolate a stretch by preparing a valid intermediate Container?
+- [ ] Does an agent understand its method without inventing architecture?
+- [ ] Is the gap local or does it require readjusting the skeleton?
+- [ ] Producers and consumers reorganized together, without wrapper?
+- [ ] Pre-commit and post-commit failure distinguished, with receipt?
+- [ ] Did I not confuse typing/simulation with a finished product, nor hypothesis with measured gain?
 
 ---
 
-## 18. O que é específico do Alex Tavern (não copiar como regra geral)
+## 18. What each new project decides (does not come ready-made)
 
-Estas regras existem no Tavern por causa do seu domínio ou da sua situação. Num projeto novo, entram somente se o dono decidir, reescritas para o domínio dele:
+The template brings the form; these choices belong to each project's owner, written in the `FILL IN` sections of `AGENTS.md` and recorded in `architecture-log.md` when they change something of the template:
 
-- **Invariantes de roleplay:** nenhum modelo sabe que um humano controla um personagem; pensamentos privados ao autor e ao Director; Director possui resultados físicos, Character possui falas; Historian resume só evidência pública. **Transferível:** a forma — cada projeto lista seus invariantes de domínio, de privacidade e de autoridade entre papéis no `AGENTS.md`.
-- **Perfil reconstrução:** snapshot do app antigo em `.dumps/reference-source` como referência privada (nunca importável), paridade por simulações diferenciais, preservar inventário de rotas. Use só se o projeto novo reconstrói um existente.
-- **Enxames de ≥50 agentes:** autorização específica da task136 do Tavern, não quota.
-- **Críticos automáticos desligados:** decisão do dono do Tavern. Em outro projeto, a política de revisão por críticos é do dono daquele projeto.
-- **Provider/modelo preferido** (Grok/SuperGrok), Python 3.14 (o template usa 3.15 pelo `lazy import`, §6.1), nomes `backend_logic`/`backend_frontend`: preferências locais; mantenha se fizerem sentido, mas registre como decisão.
-- **Identidades e formas do domínio:** `session_id`/`turn_number`, "prosa do leitor", contrato de pontuação, IDs fora do prompt. **Transferível:** a forma — chaveie evidência e declare o que cada papel sabe com as identidades do seu domínio.
+- **Domain invariants:** what each role may know, who has authority over which result, what never enters a prompt. The form is fixed (list in `AGENTS.md`, applied by projection before the context, §11); the content belongs to the domain.
+- **Domain identities:** the evidence and lock keys (`session_id`, `turn_number`…) and which IDs may appear in the prompt.
+- **Provider and model per role**, and where the adapters live.
+- **Critics and delegation policy:** whether reviews by critic subagents are on, how many agents per wave, whether there is recursive delegation. A large number of agents is a one-off authorization, not a quota.
+- **Reconstruction profile**, only if the project rebuilds an existing app: private snapshot in `.dumps/` (never importable), parity by differential simulations, preserved route inventory.
+- **Top-level names** (`backend_logic`/`backend_frontend`) and the Python version: keep them if they make sense; changing is a recorded decision (3.15 exists because of `lazy import`, §6.1).
 
-E o que é **escolha deste template**, não herança do Tavern: os cinco arquivos obrigatórios sem módulos soltos, a subida por famílias com `match` desde `backend_logic/run.py`, mecanismos como um pacote por operação (`storage/*`, `json/*`), alias de filho via módulo (`encoding.run`), a fraseologia `Require …; set …` nas docstrings, a família JSON estrita no corpo HTTP sem pydantic, e o domínio-exemplo `notes`/`roles/summarizer`.
+The example domain (`notes`, `roles/summarizer`, `roles/digest`) exists to show the form: replace it with the real domain while keeping the mechanisms (`_shared/json/*`, `notes/_shared/storage/*`, the resources of `notes/prepare`) and the style, architecture and configuration tests. When replacing the domain, the mechanisms **change place** according to real use: if only one domain writes to disk, `storage/` goes to its `_shared/`, together with the resources' `prepare/`; if two domains write, `storage/` moves up to `backend_logic/_shared/`. The `test_style.py` gate points out the wrong place.
 
-Origem do estilo: DTP (`al4xdev/dtp`, `compiler/endpoint.py` e `transcribe_mp4/endpoint.py`), consolidado no Tavern nas revisões r3–r6. `endpoint`/`have`/`arun` são nomes históricos, não convenções.
+`endpoint`/`have`/`arun` are historical names from old versions of the style, not conventions.
 
-**Resumo: escrever, tipar e ensaiar o projeto em Python; revisar suas fronteiras; só depois preencher as transformações. Voltar ao esqueleto quando as lacunas forem estruturais. O código é o blueprint, não uma promessa de blueprint futuro.**
+**Summary: write, type and rehearse the project in Python; review its boundaries; only then fill in the transformations. Go back to the skeleton when the gaps are structural. The code is the blueprint, not a promise of a future blueprint.**

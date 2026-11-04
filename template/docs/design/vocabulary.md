@@ -1,50 +1,56 @@
-# Vocabulário do projeto
+# Project vocabulary
 
-Nomes recorrentes e seus limites. Esta página registra significados; não cria fases obrigatórias. Usar um nome no código não o promove a padrão: só o dono do projeto move uma proposta para "Definidos".
+Recurring names and their limits. This page records meanings; it does not create mandatory phases. Using a name in the code does not promote it to a standard: only the project owner moves a proposal to "Defined".
 
-## Definidos pelo dono
+New agent: read this whole page before naming anything. If the name you want to use is not here and is not a local domain name (§3.3 of the guide), stop and propose it in the last section.
 
-Os seis nomes que o dono do Tavern definiu; o dono deste projeto os herda como ponto de partida.
+## Defined by the owner
 
-| Nome | Significado | Limite |
+The core of the style. A new project is born with them and does not vary them.
+
+| Name | Meaning | Limit |
 | --- | --- | --- |
-| `run.py` / `run` | Entrada pública e composição completa do nível (`def` ou `async def`). | Não é reexport. |
-| `Pipe` | Objeto fluente local de um pacote. | Sempre `Pipe`; o pacote dá o domínio. |
-| `get(initial)` | Factory com a preparação inicial. | Não é getter. Aliases `have`/`start`/`create` proibidos. |
-| `Container` | Dataclass tipada do estado intermediário, forma fixa, vazios declarados (`None` inicial é legítimo; vazio tipado também). | Não é DTO, prompt nem schema persistido. |
-| `self.container` | Único lugar dos intermediários. | `self.context`/`self.state` proibidos. |
-| `materialize` | Terminal que devolve a saída tipada. | `result`/`build`/`finish` proibidos. |
+| `run.py` / `run` | Public entry and complete composition of the level (`def` or `async def`). | Not a re-export. |
+| `Pipe` | Fluent object local to a package. | Always `Pipe`; the package gives the domain. |
+| `get(initial)` | Factory with the initial preparation. | Not a getter. Aliases `have`/`start`/`create` forbidden. |
+| `Container` | Typed dataclass of the intermediate state, fixed form, declared empties (initial `None` is legitimate; typed empty too). | Not a DTO, prompt or persisted schema. |
+| `self.container` | The only place for intermediates. | `self.context`/`self.state` forbidden. |
+| `materialize` | Terminal that returns the typed output. | `result`/`build`/`finish` forbidden. |
 
-## Herdados do Alex Tavern (propostas aceitas como ponto de partida)
+## Verbs and suffixes (accepted starting point)
 
-Verbos (os cinco propostos pelo coordenador do Tavern): `validate_*`, `prepare_*`, `project_*`, `admit_*`, `commit` — significados na §3.3 do guia. Outros nomes de método (`resolve_*`, `read_*`, `decode_*`, `publish_*`…) são nomes locais legíveis, não vocabulário.
+Verbs: `validate_*`, `prepare_*`, `project_*`, `admit_*`, `commit` — meanings in §3.3 of the guide. Other method names (`resolve_*`, `read_*`, `decode_*`, `publish_*`…) are readable local names, not vocabulary.
 
-Sufixos: `*Definition`, `*Candidate`/`Proposed*`, `Admitted*`/`Checked*`, `*Draft`, `*View`, `*Document`, `*Receipt`, `*State`, `*Entity`, `*Error`/`*ResultError` — significados na §3.4 do guia. O `Input`/`Output` genérico do Tavern foi substituído neste template por pedidos nomeados (abaixo).
+Suffixes: `*Definition`, `*Candidate`/`Proposed*`, `Admitted*`/`Checked*`, `*Draft`, `*View`, `*Document`, `*Receipt`, `*State`, `*Entity`, `*Error`/`*ResultError` — meanings in §3.4 of the guide. There is no generic `Input`/`Output`: requests and products are named (below).
 
-Leitura: `None` no Container = etapa não executada; `Missing` = ausência observada; `Found` = leitura concluída.
+Reading: `None` in the Container = step not executed; `Missing` = observed absence; `Found` = completed read.
 
-## Convenções do template (não herdadas)
+## Template conventions
 
-| Convenção | Limite |
+The why of each one, and the gate that guards it, is in [template-decisions.md](template-decisions.md).
+
+| Convention | Limit |
 | --- | --- |
-| Filho chamado pelo módulo com alias: `lazy from .encode import run as encoding` → `encoding.run(...)` | No Tavern o alias varia (`as authorizing`, `as select_provider`, `as evidence`); não há regra de gerúndio. |
-| Docstring `Require …; set …; efeitos; falhas` | A exigência é semântica (lido/exigido/escrito/preservado/efeitos); a frase é estilo. |
-| Cinco arquivos obrigatórios em toda pasta de `backend_logic` (`__init__`, `contracts`, `container`, `pipeline`, `run`) e nenhum outro nome de módulo | Decisão do dono, mais estrita que o Tavern. Legibilidade: qualquer leitor sabe onde o pacote roda (`run.py`, `def run`) sem conhecer o domínio. |
-| Pedido nomeado `<Verbo><Objeto>` (`SaveNote`, `ListNotes`, `DecodeText`, `WriteDocument`) e produto nomeado (`SavedNote`, `NoteNames`, `WriteReceipt`) | Substitui `Input`/`Output`. O tipo mora no pacote que o atende. |
-| Família: `type <Família>Request = A \| B` no `contracts.py` e `match` visível no `run.py`, com `@overload` por caso | A raiz `backend_logic/` é família; todo ancestral de família também é. Filhos de um processo (`save/decode`) são etapas, não casos. Família importa contratos dos filhos; filho nunca importa a família. |
-| `Validated(value)` no Container da família | Embrulha um produto que pode ser `None` (JSON `null`) para não se confundir com "ramo não rodou". |
-| Mecanismo como um pacote por operação: `json/{validate,decode,encode}`, `storage/{path,read,write,scan,lock}` | No Tavern, `JsonValue`/`json.loads` e a escrita vivem em `storage/files.py`. Aqui cada operação tem nome legível e os cinco arquivos; `json/` é irmão de `storage/` na raiz porque storage, papéis LLM e a borda HTTP o usam. Política JSON estrita: duplicatas, NaN, surrogates, profundidade → `ValueError`. |
-| Frontend entra só por `backend_logic/run.py` e importa só módulos `contracts` | Recursos preparados no `lifespan` por `backend.run(PrepareResources(...))`, guardados num `ResourceSlot` do frontend. Corpo HTTP pela família JSON, sem pydantic (escolha de gate; o Tavern não impõe estilo ao frontend). |
-| Autoridade compartilhada como pacote irmão (`notes/name/`) | Mesma forma de `catalog/presets/name/` no Tavern. Toda fronteira que recebe um nome — input, documento lido, arquivo listado — passa por ela; rejeição de dado lido é corrupção (`ValueError`), não erro do cliente. |
-| Código de erro e fase como `type <X>Code = Literal[...]` / `type <X>Phase = Literal[...]` no `contracts.py` do dono do erro (`NoteConflictCode`, `NoteValidationCode`, `WritePhase`) | Conjunto fechado: código mostrado ao cliente é contrato, e um código novo muda o tipo. Gate em `tests/test_style.py` proíbe `code`/`phase` anotados como `str` em `backend_logic`. |
-| Número com papel próprio como `NewType` (`Revision`) | Construir não valida; a etapa que admite constrói (`Revision(current.revision + 1)`). Orçamentos de chamada (`max_*`, `output_tokens`) ficam `int` com nome no parâmetro, para o `run` seguir legível. |
-| Regras de vocabulário verificadas por `tests/test_style.py` | O teste só garante o que é mecânico; a semântica (o que cada `validate_*` verifica de fato) continua sendo revisão. |
+| Child called by the module with an alias: `lazy from .encode import run as encoding` → `encoding.run(...)` | The alias names the action or the product (`encoding`, `naming`, `locating`); there is no gerund rule. The form `<alias>.run(...)` is fixed. |
+| Docstring `Require …; set …; effects; failures` | The requirement is semantic (read/required/written/preserved/effects); the sentence is style. |
+| Five mandatory files in every `backend_logic` package (`__init__`, `contracts`, `container`, `pipeline`, `run`) and no other module name | Owner decision. Readability: any reader knows where the package runs (`run.py`, `def run`) without knowing the domain. Only `_shared/` and grouping have another shape (rows below). |
+| `_shared/`: folder with the packages used by two or more neighbours, at their nearest common ancestor | Owner decision. Only `__init__.py`; exists even with a single package; never a family; private to the parent. Only what has its own contract and is not a use case goes in ("if two copies diverged, would it be a bug?"). Not `utils/`: a convenience function stays local, even duplicated. |
+| Grouping: child of `_shared/` without `run.py` (`_shared/json/`, `notes/_shared/storage/`) | `__init__.py` and `contracts.py` with the value that all operations exchange (`JsonValue`, `FileStore`); no `run`, no `match`. Whoever needs it calls the operation directly. |
+| Named request `<Verb><Object>` (`SaveNote`, `ListNotes`, `DecodeText`, `WriteDocument`) and named product (`SavedNote`, `NoteNames`, `WriteReceipt`) | Replaces `Input`/`Output`. The type lives in the package that serves it. |
+| Family: `type <Family>Request = A \| B` in `contracts.py` and a visible `match` in `run.py`, returning `<Family>Response` | The root `backend_logic/` is a family; every ancestor of a family is one too. Children of a process (`save/decode`) are steps, not cases. A family imports contracts from the children; a child never imports the family. `@overload` per case only at the root (public contract); whoever needs the exact product calls the process's `run`, and a family's `run` is only called by the parent. |
+| `Validated(value)` in the family's Container | Wraps a product that can be `None` (JSON `null`) so it is not confused with "branch did not run". |
+| Mechanism as one package per operation: `_shared/json/{decode,encode}` (+ `_shared/validate`), `notes/_shared/storage/{read,write,scan,lock}` (+ `_shared/path`) | Never a loose module (`files.py`, `jsonvalue.py`). `json/` is in the root `_shared/` because storage, LLM roles and the HTTP edge use it; `storage/` in the one of `notes` because only notes touch disk. Strict JSON policy: duplicates, NaN, surrogates, depth → `ValueError`. |
+| Frontend enters only through `backend_logic/run.py` and imports only `contracts` modules | Resources prepared in the `lifespan` by `backend.run(PrepareResources(...))`, kept in a frontend `ResourceSlot`. HTTP body through strict JSON (`backend.run(DecodeText(...))`), without pydantic (gate choice; the style does not impose a form on the HTTP framework). |
+| Shared authority (`_shared/note_name/`) | Every boundary that receives a name — input, read document, listed file, LLM role — goes through it; rejection of read data is corruption (`ValueError`), not a client error. |
+| Error code and phase as `type <X>Code = Literal[...]` / `type <X>Phase = Literal[...]` in the `contracts.py` of the error's owner (`NoteConflictCode`, `NoteValidationCode`, `WritePhase`) | Closed set: a code shown to the client is a contract, and a new code changes the type. Gate in `tests/test_style.py` forbids `code`/`phase` annotated as `str` in `backend_logic`. |
+| Number with its own role as `NewType` (`Revision`) | Constructing does not validate; the step that admits constructs (`Revision(current.revision + 1)`). Call budgets (`max_*`, `output_tokens`) stay `int` with a name on the parameter, so the `run` stays readable. |
+| Vocabulary rules verified by `tests/test_style.py` | The test only guarantees what is mechanical; the semantics (what each `validate_*` actually checks) remains review. |
 
-## Propostas em observação
+## Proposals under observation
 
-| Nome | Onde apareceu | Significado proposto | Limite / dúvida |
+| Name | Where it appeared | Proposed meaning | Limit / doubt |
 | --- | --- | --- | --- |
-| `Resources` | `backend_logic/runtime/application` | Recursos de lifetime da aplicação com um dono. | Não é sessão nem request container; não acumula métodos. |
-| `require_object` | `notes/save/decode` | Exigir objeto JSON com chaves exatas. | Shape, não admissão semântica. |
+| `Resources` | `backend_logic/notes/prepare` | Application lifetime resources with one owner. | Not a session nor a request container; does not accumulate methods. Today they all belong to `notes`; with a second domain, each prepares its own, or the common resource moves up together with the mechanism. |
+| `require_object` | `notes/save/decode` | Require a JSON object with exact keys. | Shape, not semantic admission. |
 
-<!-- Ao adicionar: nome, onde apareceu, significado, o que NÃO significa. -->
+<!-- When adding: name, where it appeared, meaning, what it does NOT mean. -->

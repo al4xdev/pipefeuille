@@ -7,10 +7,12 @@ from pathlib import Path
 import pytest
 
 from backend_logic import run as backend
-from backend_logic.json.decode.contracts import DecodeText
-from backend_logic.json.encode.contracts import EncodeValue
+from backend_logic._shared.json.contracts import JsonValue
+from backend_logic._shared.json.decode.contracts import DecodeText
+from backend_logic._shared.json.encode.contracts import EncodeValue
+from backend_logic._shared.note_name.contracts import NoteName
 from backend_logic.notes.list.contracts import ListNotes, NoteNames
-from backend_logic.notes.name.contracts import NoteName
+from backend_logic.notes.prepare.contracts import PrepareResources
 from backend_logic.notes.save.contracts import AuthorId, NoteRecord, Revision, SaveNote
 from backend_logic.roles.digest.contracts import Digest, DigestNotes
 from backend_logic.roles.summarizer.contracts import (
@@ -19,12 +21,12 @@ from backend_logic.roles.summarizer.contracts import (
     SummarizeNote,
     Summary,
 )
-from backend_logic.runtime.application.contracts import PrepareResources
 
 
 class OneSentenceModel:
     async def complete(self, request: ModelRequest) -> ModelReply:
-        return ModelReply(content=json.dumps({"sentences": ["Done."]}))
+        payload: JsonValue = {"sentences": ["Done."]}
+        return ModelReply(content=json.dumps(payload))
 
 
 async def test_each_family_is_reached_from_the_root(tmp_path: Path) -> None:
@@ -69,8 +71,10 @@ async def test_missing_dependency_fails_loudly_instead_of_guessing() -> None:
         revision=Revision(1),
         updated_at=datetime(2026, 1, 1, tzinfo=UTC),
     )
-    # Overloads make these calls type errors; the runtime guard covers untyped callers.
+    # Overloads make these calls type errors; the runtime guard covers untyped callers. A call
+    # that matches no overload has type Any, so `misc` (disallow_any_expr) is ignored with it.
+    summarize = SummarizeNote(note=note, language="en")
     with pytest.raises(RuntimeError, match="resources"):
-        await backend.run(ListNotes())  # type: ignore[call-overload]
+        await backend.run(ListNotes())  # type: ignore[call-overload, misc]
     with pytest.raises(RuntimeError, match="model"):
-        await backend.run(SummarizeNote(note=note, language="en"))  # type: ignore[call-overload]
+        await backend.run(summarize)  # type: ignore[call-overload, misc]

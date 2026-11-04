@@ -1,10 +1,10 @@
 lazy from datetime import datetime, timedelta
 lazy from typing import Self
 
-lazy from backend_logic.json.validate.contracts import JsonValue
+lazy from backend_logic._shared.json.contracts import JsonValue
+lazy from backend_logic._shared.note_name import run as naming
+lazy from backend_logic._shared.note_name.contracts import NoteValidationError
 
-lazy from ...name import run as naming
-lazy from ...name.contracts import NoteValidationError
 lazy from ..contracts import AuthorId, NoteRecord, Revision
 lazy from .container import Container
 
@@ -34,7 +34,7 @@ class Pipe:
     def admit_record(self) -> Self:
         """Require fields; set record after checking every declared type. No defaults.
 
-        The name passes the same notes/name authority as save input; a stored name it
+        The name passes the same note_name authority as save input; a stored name it
         rejects is a corrupt document (ValueError), not the client's invalid_name.
         """
         fields = self.container.fields

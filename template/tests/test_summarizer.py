@@ -5,7 +5,8 @@ from datetime import UTC, datetime
 
 import pytest
 
-from backend_logic.notes.name.contracts import NoteName
+from backend_logic._shared.json.contracts import JsonValue
+from backend_logic._shared.note_name.contracts import NoteName
 from backend_logic.notes.save.contracts import AuthorId, NoteRecord, Revision
 from backend_logic.roles.summarizer.contracts import (
     ModelReply,
@@ -38,9 +39,12 @@ class EchoingModel:
     async def complete(self, request: ModelRequest) -> ModelReply:
         self.requests.append(request)
         body = request.user.split("\n\n", 1)[1]
-        sentences = [part.strip() + "." for part in body.split(".") if part.strip()]
+        sentences: list[JsonValue] = [
+            part.strip() + "." for part in body.split(".") if part.strip()
+        ]
         sentences += ["Extra."] * self.extra_sentences
-        return ModelReply(content=json.dumps({"sentences": sentences}))
+        payload: JsonValue = {"sentences": sentences}
+        return ModelReply(content=json.dumps(payload))
 
 
 class FixedReplyModel:

@@ -1,7 +1,7 @@
 lazy from typing import Literal, Self
 
-lazy from backend_logic.json import run as json_text
-lazy from backend_logic.json.decode.contracts import DecodeText
+lazy from backend_logic._shared.json.decode import run as decoding
+lazy from backend_logic._shared.json.decode.contracts import DecodeText
 
 lazy from .container import Container
 lazy from .contracts import (
@@ -74,7 +74,7 @@ class Pipe:
         if self.container.reply is None:
             raise RuntimeError("reply decoding requires model reply")
         try:
-            value = json_text.run(DecodeText(self.container.reply.content))
+            value = decoding.run(DecodeText(self.container.reply.content))
         except ValueError as error:
             raise SummaryRejectedError("reply is not strict JSON") from error
         if not isinstance(value, dict) or set(value) != {"sentences"}:

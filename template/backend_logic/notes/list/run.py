@@ -1,4 +1,4 @@
-lazy from backend_logic.storage.path.contracts import FileStore
+lazy from backend_logic.notes._shared.storage.contracts import FileStore
 
 lazy from .contracts import ListNotes, NoteNames
 lazy from .pipeline import Pipe

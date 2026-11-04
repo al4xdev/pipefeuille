@@ -2,9 +2,8 @@ lazy from dataclasses import dataclass
 lazy from datetime import datetime
 lazy from typing import Literal, NewType, Protocol
 
-lazy from backend_logic.storage.write.contracts import PublicationStatus, WriteReceipt
-
-lazy from ..name.contracts import NoteName
+lazy from backend_logic._shared.note_name.contracts import NoteName
+lazy from backend_logic.notes._shared.storage.write.contracts import PublicationStatus, WriteReceipt
 
 # Nominal identity: server-side routing, never prompt text nor client input.
 AuthorId = NewType("AuthorId", str)

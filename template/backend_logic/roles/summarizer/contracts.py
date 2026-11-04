@@ -1,7 +1,7 @@
 lazy from dataclasses import dataclass
 lazy from typing import Literal, Protocol
 
-lazy from backend_logic.notes.name.contracts import NoteName
+lazy from backend_logic._shared.note_name.contracts import NoteName
 lazy from backend_logic.notes.save.contracts import NoteRecord
 
 

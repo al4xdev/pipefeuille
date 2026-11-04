@@ -1,6 +1,6 @@
-lazy from backend_logic.storage import run as storing
-lazy from backend_logic.storage.lock.contracts import LockRegistry, SelectLock
-lazy from backend_logic.storage.path.contracts import FileStore
+lazy from backend_logic.notes._shared.storage.contracts import FileStore
+lazy from backend_logic.notes._shared.storage.lock import run as locking
+lazy from backend_logic.notes._shared.storage.lock.contracts import LockRegistry, SelectLock
 
 lazy from .contracts import Clock, NoteResultError, SavedNote, SaveNote
 lazy from .pipeline import Pipe
@@ -17,7 +17,7 @@ async def run(
     )
     if pipe.container.name is None:
         raise RuntimeError("note save requires validated name before locking")
-    async with storing.run(SelectLock(locks, kind="note", name=pipe.container.name)):
+    async with locking.run(SelectLock(locks, kind="note", name=pipe.container.name)):
         pipe.read_current(store=store)
         if initial.replace:
             pipe.admit_replacement()

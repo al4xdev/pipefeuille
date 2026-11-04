@@ -1,9 +1,9 @@
-"""The shared notes/name child: one grammar for save input, stored records and listing."""
+"""The shared note_name authority: one grammar for save input, stored records and listing."""
 
 import pytest
 
-from backend_logic.notes.name import run as naming
-from backend_logic.notes.name.contracts import NoteValidationError
+from backend_logic._shared.note_name import run as naming
+from backend_logic._shared.note_name.contracts import NoteValidationError
 
 
 @pytest.mark.parametrize("name", ["groceries", "a", "A-b_9", "x" * 64])

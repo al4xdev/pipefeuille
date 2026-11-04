@@ -1,42 +1,64 @@
-# Instruções para agentes
+# Instructions for agents
 
-Este projeto nasce no estilo de pipelines verticais legíveis. Antes de mexer num pacote, leia [docs/design/vertical-pipelines.md](docs/design/vertical-pipelines.md) e [docs/design/vocabulary.md](docs/design/vocabulary.md). Este arquivo é um resumo imperativo, não uma arquitetura concorrente; em conflito, o guia vale. Decisões do dono deste projeto (seções marcadas abaixo) valem sobre o guia.
+This project is born in the readable vertical pipelines style. This file is an imperative summary, not a competing architecture; in case of conflict, the guide prevails. Decisions by this project's owner (marked below) prevail over the guide.
 
-## Projeto
+**First time here?** Follow [docs/design/reading-order.md](docs/design/reading-order.md). In short:
 
-<!-- PREENCHER: o que o produto faz, para quem, e o que ele NÃO é. -->
+- **Orchestrator** (frontier model that leads the session): this file → `README.md` → the code starting from `backend_logic/run.py` → [guide](docs/design/vertical-pipelines.md) → [vocabulary](docs/design/vocabulary.md) → [template decisions](docs/design/template-decisions.md) → [construction in waves](docs/design/construction.md) → [project log](docs/design/architecture-log.md).
+- **Implementer** (subagent with a delegation package): the received package and [construction.md → For the implementer](docs/design/construction.md#for-the-implementer). Do not explore the whole project.
 
-## Regras de código
+## Project
 
-- O código é o blueprint: contratos, Containers, assinaturas e `run` reais antes da lógica. Lógica ausente é `raise NotImplementedError("pacote.metodo")`, nunca sucesso vazio.
-- Vocabulário fixo: `run.py`/`run`, `Pipe`, `Pipe.get(initial)`, `Container`, `self.container`, métodos fluentes `-> Self`, terminal `materialize`. Proibido `have`/`start`/`create`, `result`/`build`/`finish`, `self.context`/`self.state`.
-- **Decisão do dono:** toda pasta de `backend_logic` tem exatamente `__init__.py` (só docstring, sem I/O), `contracts.py`, `container.py`, `pipeline.py`, `run.py`, e nenhum outro módulo. Comece a ler sempre pelo `run.py`/`def run`. `contracts.py` guarda o pedido, o produto, os tipos dos campos do Container e das mutações, portas e erros.
-- **Subida:** a leitura começa em `backend_logic/run.py`. Família declara `type <Família>Request = A | B` e despacha com `match` visível (`@overload` por caso, `assert_never` no fim); todo ancestral de família é família. Processo tem cadeia; seus filhos são etapas. Novo caso de uso = pedido nomeado no pacote que o atende + união na família + `case` em cada `run.py` acima.
-- Mecanismo compartilhado é um pacote por operação com nome legível (`storage/write/`, `json/decode/`), nunca módulo solto (`files.py`, `jsonvalue.py`).
-- Cada pasta é um pacote e a profundidade diz quem o usa: um consumidor → dentro dele; irmãos → no pai comum, ao lado deles; nunca na raiz "por precaução". Autoridade compartilhada (ex.: `notes/name/`) é um pacote irmão, não helper.
-- Paralelo = `asyncio.TaskGroup` chamando `run`s de pacotes irmãos; o pai integra os resultados em ordem fixa depois da barreira.
-- Filho é chamado pelo seu `run` com alias que nomeia a ação/produto (convenção do template: `lazy from .encode import run as encoding` → `encoding.run(...)`). Pai importa só `run`/`contracts` do filho.
-- Pedidos e produtos nomeados (`SaveNote` → `SavedNote`), não `Input`/`Output` genéricos. Container: vazios declarados (`None` ou vazio tipado); produto que pode ser `None` vai embrulhado (`Validated`).
-- Ordem, branches, locks e awaits ficam visíveis no `run`, com indentação crescente como sequência. O `ruff format` já ignora `backend_logic/**/run.py` (config no `pyproject.toml`): não escreva `# fmt: off`/`# fmt: on`, e formate o `run.py` à mão.
-- Todo método de `Pipe` (inclusive `get` e `materialize`) tem docstring declarando o que lê, exige, escreve e preserva, efeitos e falhas (fraseologia do template: `Require …; set …`).
-- Campo obrigatório ausente: `if x is None: raise RuntimeError(...)`, nunca `assert`.
-- Literal local fica no ponto de chamada. Config, credenciais e recursos são carregados pelo dono e passados explicitamente; nada de global.
-- Tipagem estrita: sem `Any`, coleções sem parâmetro, `cast`/`type: ignore` para esconder contrato. JSON amplo só na fronteira de ingestão. Códigos de erro e fases são `Literal`, nunca `str`.
-- **Decisão do dono:** Python 3.15, e todo import de topo em `backend_logic`/`backend_frontend` é `lazy` (`lazy import x`, `lazy from .contracts import Y`). Exceções: `from __future__` e imports dentro de função. Se um pacote não suportar lazy, troque aquele import por `import` normal e registre o módulo em `EAGER_IMPORTS` (`tests/test_style.py`) com o motivo, mais uma entrada no `architecture-log.md` (guia §6.1). Erro de import agora aparece no primeiro uso: teste cada `run`.
-- Função auxiliar é local ao `pipeline.py` por padrão; compartilhar só com consumidores reais, como pacote no menor ancestral comum. Código novo não ganha wrapper de compatibilidade.
-- Verbos herdados: `validate_*` (verifica, nunca corrige), `prepare_*`, `project_*`, `admit_*`, `commit`. Demais nomes de método são locais e de domínio.
-- `commit` publica uma mudança canônica uma vez e guarda `*Receipt`. Falha da publicação propaga com seu recibo; falha depois dela vira `*ResultError` com o recibo. Sem retry escondido.
-- Nunca faça offload de escrita para thread sob lock async. Reentrância de lock é decisão por recurso; múltiplos locks em ordem fixa; nunca evicte locks.
-- `backend_logic` nunca importa FastAPI/Starlette/pydantic/`backend_frontend`. `backend_frontend` entra só por `backend_logic/run.py` e importa só módulos `contracts`; recursos nascem no `lifespan`.
-- Papéis LLM são provider-neutral, aplicam privacidade antes do contexto, tratam saída como proposta e a admitem localmente. Orçamentos em tokens.
+<!-- FILL IN: what the product does, for whom, and what it is NOT. -->
 
-## Processo
+## Code rules
 
-1. Levantar → contratos e composições em código → ensaiar com fakes tipados → implementar/delegar → integrar → confrontar com as fontes.
-2. Lacuna local: corrija. Ausência estrutural: volte ao esqueleto antes de outra onda.
-3. Ao delegar, entregue assinatura, campos do Container lidos/escritos, efeitos, falhas, fixtures e arquivos exclusivos. Implementador que encontra contrato impossível reporta, não inventa.
-4. Classifique falhas: implementação / omissão arquitetural / capacidade não distribuída.
-5. Novo nome recorrente → proposta em `vocabulary.md`. Decisão estrutural → `architecture-log.md`.
+- The code is the blueprint: real contracts, Containers, signatures and `run` before the logic. Missing logic is `raise NotImplementedError("package.method")`, never an empty success.
+- Fixed vocabulary: `run.py`/`run`, `Pipe`, `Pipe.get(initial)`, `Container`, `self.container`, fluent methods `-> Self`, terminal `materialize`. Forbidden: `have`/`start`/`create`, `result`/`build`/`finish`, `self.context`/`self.state`.
+- **Owner decision:** every `backend_logic` package has exactly `__init__.py` (docstring only, no I/O), `contracts.py`, `container.py`, `pipeline.py`, `run.py`, and no other module. Always start reading from `run.py`/`def run`. `contracts.py` holds the request, the product, the types of the Container fields and of the mutations, ports and errors. Only two folders have another shape: `_shared/` (only `__init__.py`) and the grouping inside it (`__init__.py` + `contracts.py`, no `run`).
+- **Climb:** reading starts at `backend_logic/run.py`. A family declares `type <Family>Request = A | B` and `<Family>Response`, and dispatches with a visible `match` (`assert_never` at the end); every ancestor of a family is a family. A process has a chain; its children are steps. New use case = request named in the package that serves it + unions in the family + `case` in each `run.py` above + one `@overload` at the root.
+- **Owner decision:** `@overload` only in `backend_logic/run.py` (public contract). An intermediate family returns the union, without overload. Whoever needs the exact product calls the process's `run` (`lazy from backend_logic.notes._shared.storage.lock import run as locking`), never the family's; a family's `run` is only imported by the parent's `pipeline.py`. Gate in `tests/test_style.py` (guide §2).
+- A shared mechanism is one package per operation with a readable name (`storage/write/`, `json/decode/`), never a loose module (`files.py`, `jsonvalue.py`).
+- **Owner decision:** depth says who uses it. One consumer → inside it. Two or more neighbours → in the `_shared/` of the nearest common ancestor (`backend_logic/_shared/note_name/`, `notes/_shared/storage/`), which exists even with a single package; never at the root "just in case". Only what has its own contract, two real consumers (importing only the types counts) and is not a use case goes into `_shared/`; test: "if two copies diverged, would it be a bug?". `_shared/` is never a family and is private to the parent. Gate in `tests/test_style.py::test_shared_packages_sit_at_the_nearest_common_parent` (guide §2, `_shared/` block).
+- Parallel = `asyncio.TaskGroup` calling the `run`s of sibling packages; the parent integrates the results in fixed order after the barrier.
+- A child is called through its `run` with an alias that names the action/product (template convention: `lazy from .encode import run as encoding` → `encoding.run(...)`). The parent imports only the child's `run`/`contracts`.
+- Named requests and products (`SaveNote` → `SavedNote`), not generic `Input`/`Output`. Container: declared empties (`None` or typed empty); a product that can be `None` is wrapped (`Validated`).
+- Order, branches, locks and awaits stay visible in `run`, with increasing indentation as the sequence. `ruff format` already ignores `backend_logic/**/run.py` (config in `pyproject.toml`): do not write `# fmt: off`/`# fmt: on`, and format `run.py` by hand.
+- Every `Pipe` method (including `get` and `materialize`) has a docstring declaring what it reads, requires, writes and preserves, effects and failures (template phrasing: `Require …; set …`).
+- Missing required field: `if x is None: raise RuntimeError(...)`, never `assert`.
+- A local literal stays at the call site. Config, credentials and resources are loaded by the owner and passed explicitly; nothing global.
+- Strict typing: no `Any`, no unparameterized collections, no `cast`/`type: ignore` to hide a contract. Wide JSON only at the ingestion boundary. Error codes and phases are `Literal`, never `str`. `disallow_any_expr` applies to the whole project (logic, frontend and tests): a library's `Any` only exists inside a boundary module exempted in `pyproject.toml` that returns narrow types (guide §6). The template's three are in `template-decisions.md` (C2); a new one requires an owner decision and an entry in `architecture-log.md`. Look first for the typed way out (`add_api_route`, value annotated as `JsonValue`, `@override` on fakes).
+- **Owner decision:** Python 3.15, and every top-level import in `backend_logic`/`backend_frontend` is `lazy` (`lazy import x`, `lazy from .contracts import Y`). Exceptions: `from __future__` and imports inside a function. If a package does not support lazy, replace that import with a normal `import` and register the module in `EAGER_IMPORTS` (`tests/test_style.py`) with the reason, plus an entry in `architecture-log.md` (guide §6.1). An import error now appears on first use: test each `run`.
+- A helper function is local to `pipeline.py` by default; share only with real consumers, as a package in the `_shared/` of the nearest common ancestor. New code does not get a compatibility wrapper.
+- Vocabulary verbs: `validate_*` (checks, never fixes), `prepare_*`, `project_*`, `admit_*`, `commit`. Other method names are local and domain-specific.
+- `commit` publishes a canonical change once and keeps a `*Receipt`. A publication failure propagates with its receipt; a failure after it becomes `*ResultError` with the receipt. No hidden retry.
+- Never offload a write to a thread under an async lock. Lock reentrancy is a per-resource decision; multiple locks in fixed order; never evict locks.
+- `backend_logic` never imports FastAPI/Starlette/pydantic/`backend_frontend`. `backend_frontend` enters only through `backend_logic/run.py` and imports only `contracts` modules; resources are born in the `lifespan`.
+- LLM roles are provider-neutral, apply privacy before the context, treat output as a proposal and admit it locally. Budgets in tokens.
+
+## Process
+
+The complete step-by-step, with the gates that close each wave, is in [docs/design/construction.md](docs/design/construction.md).
+
+1. Survey → contracts and compositions in code → rehearse with typed fakes → implement/delegate → integrate → confront with the sources. The orchestrator builds almost everything (tree, contracts, Containers, signatures, docstrings, `run`s, tests); the session's subagents, on intermediate or smaller models, fill in only the method bodies they received.
+2. Local gap: fix it. Structural absence: go back to the skeleton before another wave.
+3. When delegating, hand over the signature, Container fields read/written, effects, failures, fixtures and exclusive files. An implementer who finds an impossible contract reports, does not invent.
+4. Classify failures: implementation / architectural omission / undistributed capability.
+5. New recurring name → proposal in `vocabulary.md`. Structural decision of this project → `architecture-log.md`. The why of the rules that already come with the template is in `template-decisions.md`: read it before proposing to change one.
+
+## Who can touch what (owner decision)
+
+The structure belongs to the **frontier model** (the orchestrator); **intermediate and smaller models** (the implementers, session subagents) only touch the method they received by delegation. The flow is in [docs/design/construction.md](docs/design/construction.md).
+
+| Artifact | Frontier model (orchestrator) | Intermediate / smaller model (implementer) |
+| --- | --- | --- |
+| `run.py`, `contracts.py`, `container.py`, `__init__.py`, folder structure | writes and changes | does not touch |
+| `pipeline.py`: signature, docstring, method order | writes and changes | does not touch |
+| `pipeline.py`: body of the delegated method | delivers as `raise NotImplementedError("package.method")` | **fills in only this body** |
+| Method tests and fixtures | writes (or approves) | runs; does not change them to make them pass |
+| Gates (`pyproject.toml`) | configures | runs; never relaxes |
+
+Wrong or incomplete contract (missing field, type too wide, undeclared error): the implementer **stops and reports** to the frontier model. Never works around it with `cast`, `# type: ignore`, a new field or an extra import.
 
 ## Gates
 
@@ -47,27 +69,27 @@ uv run mypy .
 uv run pytest
 ```
 
-Nunca relaxe um gate para obter verde. Gates verdes não provam produto pronto: relate o que foi ausente, ensaiado, implementado, integrado e verificado.
+Never relax a gate to get green. Green gates do not prove a finished product: report what was missing, rehearsed, implemented, integrated and verified.
 
-A configuração de ruff (lint e format), mypy e pytest vive no `pyproject.toml` e **faz parte do template**: um projeto novo nasce com ela pronta. Não crie `ruff.toml`, `mypy.ini` ou `setup.cfg` paralelos, não passe flags que a contornem e não a altere sem decisão do dono registrada em `docs/design/architecture-log.md`.
+The ruff (lint and format), mypy and pytest configuration lives in `pyproject.toml` and **is part of the template**: a new project is born with it ready. Do not create parallel `ruff.toml`, `mypy.ini` or `setup.cfg`, do not pass flags that work around it, and do not change it without an owner decision recorded in `docs/design/architecture-log.md`.
 
-## Dados, segredos e autorizações
+## Data, secrets and authorizations
 
-- `.data/` (dados de runtime) e `.dumps/` (scratch, referências) são privados e ignorados pelo git. Dados reais nunca são fixtures.
-- Nunca imprima nem versione tokens/configs privadas.
-- Rede, modelo pago, OAuth, commit, push e publicação exigem autorização explícita.
+- `.data/` (runtime data) and `.dumps/` (scratch, references) are private and ignored by git. Real data is never a fixture.
+- Never print or version tokens/private configs.
+- Network, paid model, OAuth, commit, push and publication require explicit authorization.
 
-<!-- PREENCHER: autorizações concretas vigentes (ex.: "chamadas reais ao modelo X permitidas sob -m llm até <data>"). -->
+<!-- FILL IN: concrete authorizations currently in force (e.g. "real calls to model X allowed under -m llm until <date>"). -->
 
-## Invariantes do domínio
+## Domain invariants
 
-<!-- PREENCHER: invariantes de privacidade, autoridade entre papéis e o que cada papel pode saber.
-Ex. (Tavern): "nenhum modelo sabe que um humano controla um personagem; Director possui resultados físicos". -->
+<!-- FILL IN: privacy invariants, authority between roles and what each role may know.
+E.g.: "the summary role never receives the author_id"; "only the reviewer role admits an edit proposal". -->
 
-## Política de provider e modelo
+## Provider and model policy
 
-<!-- PREENCHER: providers permitidos, modelo padrão por papel, onde vivem adapters (llm/providers/<provider>/). -->
+<!-- FILL IN: allowed providers, default model per role, where adapters live (llm/providers/<provider>/). -->
 
-## Política de críticos e delegação
+## Critics and delegation policy
 
-<!-- PREENCHER: se revisões por subagentes críticos estão ligadas, número máximo de agentes por onda, delegação recursiva permitida ou não. -->
+<!-- FILL IN: whether reviews by critic subagents are on, maximum number of implementers per wave, which model (intermediate or smaller) takes the implementer role, whether recursive delegation is allowed or not. See docs/design/construction.md. -->

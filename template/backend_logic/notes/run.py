@@ -1,31 +1,25 @@
-lazy from typing import assert_never, overload
-
-lazy from backend_logic.storage.lock.contracts import LockRegistry
-lazy from backend_logic.storage.path.contracts import FileStore
+lazy from typing import assert_never
 
 lazy from .contracts import NotesRequest, NotesResponse
-lazy from .list.contracts import ListNotes, NoteNames
+lazy from .list.contracts import ListNotes
 lazy from .pipeline import Pipe
-lazy from .save.contracts import Clock, SavedNote, SaveNote
+lazy from .prepare.contracts import PrepareResources, Resources
+lazy from .save.contracts import SaveNote
 
 
-@overload
-async def run(
-    initial: ListNotes, *, store: FileStore, locks: LockRegistry, clock: Clock
-) -> NoteNames: ...
-@overload
-async def run(
-    initial: SaveNote, *, store: FileStore, locks: LockRegistry, clock: Clock
-) -> SavedNote: ...
-async def run(
-    initial: NotesRequest, *, store: FileStore, locks: LockRegistry, clock: Clock
-) -> NotesResponse:
+async def run(initial: NotesRequest, *, resources: Resources | None) -> NotesResponse:
     pipe = Pipe.get(initial)
     match initial:
+        case PrepareResources():
+            pipe.prepare_resources(initial)
         case ListNotes():
-            pipe.list_notes(initial, store=store)
+            if resources is None:
+                raise RuntimeError("listing notes requires the prepared resources")
+            pipe.list_notes(initial, resources=resources)
         case SaveNote():
-            await pipe.save_note(initial, store=store, locks=locks, clock=clock)
+            if resources is None:
+                raise RuntimeError("saving a note requires the prepared resources")
+            await pipe.save_note(initial, resources=resources)
         case _:
             assert_never(initial)
     return pipe.materialize()

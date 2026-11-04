@@ -2,7 +2,7 @@
 
 lazy from dataclasses import dataclass
 
-lazy from backend_logic.runtime.application.contracts import Resources
+lazy from backend_logic.notes.prepare.contracts import Resources
 
 
 @dataclass

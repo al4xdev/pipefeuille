@@ -1,9 +1,9 @@
 lazy from dataclasses import dataclass
 lazy from datetime import datetime
 
-lazy from backend_logic.storage.write.contracts import WriteReceipt
+lazy from backend_logic._shared.note_name.contracts import NoteName
+lazy from backend_logic.notes._shared.storage.write.contracts import WriteReceipt
 
-lazy from ..name.contracts import NoteName
 lazy from .contracts import CurrentRead, NoteRecord, Revision, SaveNote
 lazy from .encode.contracts import NoteDocument
 
