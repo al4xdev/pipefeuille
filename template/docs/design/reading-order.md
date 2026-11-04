@@ -14,7 +14,7 @@ You have never seen this project. This page says what to read, in what order, an
    5. `backend_logic/notes/prepare/` — the lifetime resources (store, locks, clock);
    6. `backend_logic/roles/summarizer/` and `roles/digest/` — LLM role and parallelism with `TaskGroup`;
    7. the `_shared/` — `backend_logic/_shared/` (`json/`, `note_name/`) and `notes/_shared/storage/`: what neighbours share, one package per operation; first read the `_shared/` block of guide §2;
-   8. `backend_frontend/` — the HTTP edge, which enters only through the root.
+   8. `http_adapter/` — the HTTP edge, which enters only through the root.
 4. **[`vertical-pipelines.md`](vertical-pipelines.md)** (the guide) — §1 to §6 in full; the rest through the table below, when the topic appears.
 5. **[`vocabulary.md`](vocabulary.md)** — before naming anything.
 6. **[`template-decisions.md`](template-decisions.md)** — the why of each rule and the gate that guards it. Read before thinking about "simplifying" a rule.
@@ -38,7 +38,7 @@ Do not read the whole project. Follow [construction.md → For the implementer](
 | touch a Container | §5 |
 | decide a type, or run into `Any` | §6, §6.1, `template-decisions.md` C |
 | write, publish or lock something | §9 |
-| touch the frontend | §10 |
+| touch the HTTP adapter | §10 |
 | create an LLM role | §11 |
 | rehearse, test or delegate | §12, §13, `construction.md` |
 | record a decision | §14, `architecture-log.md` |

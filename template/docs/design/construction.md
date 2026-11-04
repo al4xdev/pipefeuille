@@ -162,7 +162,7 @@ For each report:
 
 ## Wave 5 — integration, verification and report (orchestrator)
 
-1. Wire the real consumers (frontend, `lifespan`) and check that the frontend enters only through the root.
+1. Wire the real consumers (`http_adapter`, `lifespan`) and check that the HTTP adapter enters only through the root.
 2. Verification with real components (model, network) **only with explicit authorization** from the owner, under the `-m llm` marker.
 3. Write in `architecture-log.md` what changed in structure, with the honest state (absent / rehearsed / implemented / integrated / verified).
 4. Report to the owner: what was proven and what was **not**. "Green gates" is not "finished product".

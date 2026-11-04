@@ -7,7 +7,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 LOGIC = ROOT / "backend_logic"
-HTTP = ROOT / "backend_frontend"
+HTTP = ROOT / "http_adapter"
 
 
 def absolute_imports(source: str) -> list[str]:
@@ -23,7 +23,7 @@ def absolute_imports(source: str) -> list[str]:
     return modules
 
 
-def frontend_logic_imports(source: str) -> list[str]:
+def adapter_logic_imports(source: str) -> list[str]:
     """backend_logic targets other than the root run and contracts modules (and their names).
 
     The HTTP adapter enters through backend_logic/run.py like every other caller; a family
@@ -40,7 +40,7 @@ def frontend_logic_imports(source: str) -> list[str]:
 
 
 def test_logic_does_not_import_http() -> None:
-    forbidden = {"backend_frontend", "fastapi", "starlette", "pydantic"}
+    forbidden = {"http_adapter", "fastapi", "starlette", "pydantic"}
     violations = [
         (str(path.relative_to(ROOT)), module)
         for path in LOGIC.rglob("*.py")
@@ -59,7 +59,7 @@ def test_internal_import_scanner_sees_every_import_form() -> None:
         "from backend_logic import run as backend\n"
         "from backend_logic.notes.save.contracts import SaveNote\n"
     )
-    assert frontend_logic_imports(source) == [
+    assert adapter_logic_imports(source) == [
         "backend_logic.notes.save",
         "backend_logic.notes.save.pipeline",
         "backend_logic.notes",
@@ -72,7 +72,7 @@ def test_http_enters_only_through_the_root_run() -> None:
     violations = [
         (str(path.relative_to(ROOT)), module)
         for path in HTTP.rglob("*.py")
-        for module in frontend_logic_imports(path.read_text(encoding="utf-8"))
+        for module in adapter_logic_imports(path.read_text(encoding="utf-8"))
     ]
     assert not violations
 
@@ -114,9 +114,9 @@ def audit(event, args):
 
 sys.addaudithook(audit)
 import backend_logic
-import backend_frontend
+import http_adapter
 
-for package in (backend_logic, backend_frontend):
+for package in (backend_logic, http_adapter):
     for module in pkgutil.walk_packages(package.__path__, package.__name__ + '.'):
         importlib.import_module(module.name)
 importing = False

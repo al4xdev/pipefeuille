@@ -106,7 +106,7 @@ Three folder shapes, and only three:
 
 Rules of `_shared/`, all checked by `tests/gates/test_style.py`:
 
-- **Never a family.** Nothing inside `_shared/` declares `<Family>Request` or has a `match`; the root never dispatches it as a family. Whoever needs it calls the operation's `run` directly (`decoding.run(DecodeText(...))`). This is also security: if the root dispatched `WriteDocument`, the frontend would write any file, skipping the rules of `notes`.
+- **Never a family.** Nothing inside `_shared/` declares `<Family>Request` or has a `match`; the root never dispatches it as a family. Whoever needs it calls the operation's `run` directly (`decoding.run(DecodeText(...))`). This is also security: if the root dispatched `WriteDocument`, the HTTP adapter would write any file, skipping the rules of `notes`.
 - **It is private to the owner.** Only whoever is inside the parent of a `_shared/` imports it: `roles/` does not reach `notes/_shared/storage/`. The type that a consumer outside the mechanism needs (`FileStore`) lives in the grouping's `contracts.py`, not in a `_shared/` internal to it.
 - **Needs two consumers.** A package in `_shared/` used by a single neighbour moves down inside it.
 - **Shared outside `_shared/` is flagged.** A package that is not a use case, used by two neighbours or by someone outside its parent, needs to go to a `_shared/`.
@@ -144,7 +144,7 @@ Each case calls a method of the family's `Pipe` that delegates to the child's `r
 
 **Overload only at the root; the exact product comes from the process.**
 
-- `backend_logic/run.py` has one `@overload` per use case. It is the public contract, read from top to bottom as the backend's menu: each request, what it requires and what it returns. The frontend needs it to receive `NoteNames`, and not the union.
+- `backend_logic/run.py` has one `@overload` per use case. It is the public contract, read from top to bottom as the backend's menu: each request, what it requires and what it returns. The HTTP adapter needs it to receive `NoteNames`, and not the union.
 - Whoever, inside the backend, needs an exact product calls the `run` of the **process** that produces it (`lazy from backend_logic._shared.json.encode import run as encoding`, `lazy from backend_logic.notes._shared.storage.lock import run as locking`), never the family's. The process's `materialize()` already returns the exact type, and mypy checks that against the body.
 - A family's `run` is only imported by the parent's `pipeline.py`, that is, in the climb.
 - Reason: an overload is a promise that mypy does **not** check against each `case`. In a test with `run(EncodeValue) -> int`, with the body returning `str`, the `run.py` of the family that dispatched JSON passed clean and only the callers broke. One block only, at the root and covered by `tests/example/test_backend_run.py`, leaves fewer unverified promises than one block per family.
@@ -482,7 +482,7 @@ The goal is not green mypy: it is to **reduce what the implementer has to guess*
 - Types do not prove ranges, relations between fields, privacy or temporal order: declare preconditions and validate at runtime.
 - Never relax the gate (exclude a module, turn off a rule) to get green.
 
-Reference configuration (the template's `pyproject.toml`): `mypy strict = true`, `disallow_any_explicit`, `disallow_any_unimported`, **global** `disallow_any_expr` (logic, frontend and tests), `warn_unreachable`, `strict_bytes` and the extra codes `ignore-without-code`, `redundant-expr`, `redundant-self`, `truthy-bool`, `truthy-iterable`, `possibly-undefined`, `unused-awaitable`, `explicit-override`, `mutable-override`, `exhaustive-match` and `deprecated`; Ruff with `E,F,I,N,W,UP,B,C4,SIM`. The test `tests/gates/test_config.py` fails if this configuration is loosened.
+Reference configuration (the template's `pyproject.toml`): `mypy strict = true`, `disallow_any_explicit`, `disallow_any_unimported`, **global** `disallow_any_expr` (logic, HTTP adapter and tests), `warn_unreachable`, `strict_bytes` and the extra codes `ignore-without-code`, `redundant-expr`, `redundant-self`, `truthy-bool`, `truthy-iterable`, `possibly-undefined`, `unused-awaitable`, `explicit-override`, `mutable-override`, `exhaustive-match` and `deprecated`; Ruff with `E,F,I,N,W,UP,B,C4,SIM`. The test `tests/gates/test_config.py` fails if this configuration is loosened.
 
 **`Any` only as a last resort, and contained.** When a library hands over `Any` with no typed alternative, it stays trapped in a boundary module with its own name, which narrows the value (`isinstance`, strict decoding) before returning it. Only those modules are exempt from `disallow_any_expr` in `pyproject.toml`. The template has three, explained in [template-decisions.md](template-decisions.md) (C2); a new boundary in the project requires an owner decision and an entry in `architecture-log.md`:
 
@@ -503,7 +503,7 @@ Before opening a boundary, look for the typed way out. In the template these wer
 
 ### 6.1. `lazy` imports (Python 3.15, PEP 810)
 
-The template requires Python 3.15 for one reason: `lazy import`. **Every top-level module import in `backend_logic` and `backend_frontend` is `lazy`**:
+The template requires Python 3.15 for one reason: `lazy import`. **Every top-level module import in `backend_logic` and `http_adapter` is `lazy`**:
 
 ```python
 lazy import asyncio
@@ -576,12 +576,12 @@ Gate: `tests/gates/test_style.py::test_every_top_level_import_is_lazy`.
 
 ## 10. Two applications and dependency direction
 
-| `backend_logic` | `backend_frontend` |
+| `backend_logic` | `http_adapter` |
 | --- | --- |
 | Domain, agents, pipelines, validation, transactions, persistence, provider/plugin abstractions. | HTTP routes, request/response encoding, status/errors/SSE, assets, transport security. |
-| **Never** imports FastAPI, Starlette, pydantic, transport DTOs or `backend_frontend`. | Enters **only** through `backend_logic/run.py` (`from backend_logic import run as backend`) and imports from the logic only `contracts` modules (the types of requests and products). Never imports a family's `run`, `pipeline`, `container` or `helpers`. Resources (store, locks, clock) are prepared in the `lifespan` by `backend.run(PrepareResources(...))` and kept in a local frontend slot (`ResourceSlot`); `tests/gates/test_architecture.py` guarantees the single door. |
+| **Never** imports FastAPI, Starlette, pydantic, transport DTOs or `http_adapter`. | Enters **only** through `backend_logic/run.py` (`from backend_logic import run as backend`) and imports from the logic only `contracts` modules (the types of requests and products). Never imports a family's `run`, `pipeline`, `container` or `helpers`. Resources (store, locks, clock) are prepared in the `lifespan` by `backend.run(PrepareResources(...))` and kept in a local adapter slot (`ResourceSlot`); `tests/gates/test_architecture.py` guarantees the single door. |
 
-Style rule: **do not blindly impose the style's details on the frontend framework**. The frontend's hard rules are dependency direction and not duplicating business; names such as `create_app`/`build_router` are HTTP framework idiom, not a violation of the pipelines vocabulary.
+Style rule: **do not blindly impose the style's details on the HTTP framework**. The HTTP adapter's hard rules are dependency direction and not duplicating business; names such as `create_app`/`build_router` are HTTP framework idiom, not a violation of the pipelines vocabulary.
 
 Decoding the HTTP body is also an ingestion boundary. **This template's choice** (the style itself does not require it): read bytes, pass through the same strict JSON of the logic (`_shared/json/decode`) through the single door (`backend.run(DecodeText(...))`: duplicates, NaN, surrogates, depth) and check the wire shape in a dataclass, responding with `JSONResponse`. The template avoids pydantic because its models introduce `Any` and the global `disallow_any_explicit` would fail. If the owner prefers pydantic at the edge, record the decision and the gate adjustment in `architecture-log.md`; in `backend_logic`, never.
 
@@ -737,7 +737,7 @@ Number of agents, passing tests and percentages are **not** evidence of completi
 | Retry after the commit because the log failed | Duplicates the effect | `*ResultError` with receipt |
 | `asyncio.to_thread(writing.run, WriteDocument(...))` under lock | Cancellation releases the lock with the write still running | synchronous write inside the lock |
 | Loose module (`files.py`, `jsonvalue.py`, `utils.py`) | Reader does not know where to start nor what it is | package per operation with the five files |
-| Frontend calling `notes.run` or `storage` directly | Side door; the climb disappears | `backend_logic/run.py` + `contracts` |
+| HTTP adapter calling `notes.run` or `storage` directly | Side door; the climb disappears | `backend_logic/run.py` + `contracts` |
 | `validate_*` that does `.strip()` | Fixes instead of checking | reject, or a named normalization step |
 | "Tests green, it's done" | Confuses mechanics with product | report what was and was not proven |
 
@@ -775,7 +775,7 @@ The template brings the form; these choices belong to each project's owner, writ
 - **Provider and model per role**, and where the adapters live.
 - **Critics and delegation policy:** whether reviews by critic subagents are on, how many agents per wave, whether there is recursive delegation. A large number of agents is a one-off authorization, not a quota.
 - **Reconstruction profile**, only if the project rebuilds an existing app: private snapshot in `.dumps/` (never importable), parity by differential simulations, preserved route inventory.
-- **Top-level names** (`backend_logic`/`backend_frontend`) and the Python version: keep them if they make sense; changing is a recorded decision (3.15 exists because of `lazy import`, §6.1).
+- **Top-level names** (`backend_logic`/`http_adapter`) and the Python version: keep them if they make sense; changing is a recorded decision (3.15 exists because of `lazy import`, §6.1).
 
 The example domain (`notes`, `roles/summarizer`, `roles/digest`) exists to show the form: replace it with the real domain while keeping the mechanisms (`_shared/json/*`, `notes/_shared/storage/*`, the resources of `notes/prepare`) and the style, architecture and configuration tests. When replacing the domain, the mechanisms **change place** according to real use: if only one domain writes to disk, `storage/` goes to its `_shared/`, together with the resources' `prepare/`; if two domains write, `storage/` moves up to `backend_logic/_shared/`. The `test_style.py` gate points out the wrong place.
 

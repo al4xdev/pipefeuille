@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 from wire_client import serving
 
-from backend_frontend.application import create_app
+from http_adapter.application import create_app
 
 
 def test_app_construction_touches_no_disk_until_the_lifespan_starts(tmp_path: Path) -> None:

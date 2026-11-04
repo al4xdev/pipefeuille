@@ -574,7 +574,7 @@ def test_run_composition_has_no_formatter_escapes() -> None:
     assert not escapes
 
 
-FRONTEND = ROOT / "backend_frontend"
+ADAPTER = ROOT / "http_adapter"
 # §6.1 fallback: a top-level module that breaks under PEP 810 (import-time registration,
 # side effects the code relies on) goes here with the reason, and is imported eagerly.
 # Record the entry in architecture-log.md too. Keys are the imported module as written.
@@ -616,7 +616,7 @@ def test_every_top_level_import_is_lazy() -> None:
     # §6.1: a module costs nothing until its first use; startup loads only the path it takes.
     violations = [
         f"{path.relative_to(ROOT)}: {module}"
-        for folder in (LOGIC, FRONTEND)
+        for folder in (LOGIC, ADAPTER)
         for path in folder.rglob("*.py")
         for module in eager_imports(path.read_text(encoding="utf-8"))
     ]

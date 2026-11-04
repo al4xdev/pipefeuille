@@ -26,7 +26,7 @@ The complete guide is in [vertical-pipelines.md](vertical-pipelines.md); the nam
 
 ### A2. Climb by families: the root is the single door
 
-- **Rule:** a family declares `type <Family>Request = A | B` and `<Family>Response` in `contracts.py` and dispatches with `match`/`assert_never` in `run.py`. `backend_logic/` is a family, and every ancestor of a family is too. Children of a process are steps, not cases. The frontend enters only through `backend_logic/run.py`.
+- **Rule:** a family declares `type <Family>Request = A | B` and `<Family>Response` in `contracts.py` and dispatches with `match`/`assert_never` in `run.py`. `backend_logic/` is a family, and every ancestor of a family is too. Children of a process are steps, not cases. The HTTP adapter enters only through `backend_logic/run.py`.
 - **Why:** any use case is found by descending `match` by `match` from a single file. Named requests (`SaveNote`, `PrepareResources`) replaced generic `Input`/`Output` because the request name is readable outside the package.
 - **Gate:** `tests/gates/test_style.py::test_every_family_run_dispatches_by_typed_use_case` (family without `match` or family under a process); `tests/example/test_backend_run.py::test_each_family_is_reached_from_the_root`; `tests/gates/test_architecture.py::test_http_enters_only_through_the_root_run`; mypy `exhaustive-match`.
 - **Does not prove:** exhaustiveness beyond what `assert_never` and mypy guarantee.
@@ -124,7 +124,7 @@ The complete guide is in [vertical-pipelines.md](vertical-pipelines.md); the nam
 
 ### C3. Python 3.15 and every top-level import `lazy`
 
-- **Rule:** `requires-python = ">=3.15"`; every top-level import in `backend_logic` and `backend_frontend` is `lazy` (PEP 810). Exceptions go in `EAGER_IMPORTS` (`tests/gates/test_style.py`) with a reason, and in an `architecture-log.md` entry. `tests/` stays eager.
+- **Rule:** `requires-python = ">=3.15"`; every top-level import in `backend_logic` and `http_adapter` is `lazy` (PEP 810). Exceptions go in `EAGER_IMPORTS` (`tests/gates/test_style.py`) with a reason, and in an `architecture-log.md` entry. `tests/` stays eager.
 - **Why:** owner's choice. Importing the root does not load the whole tree: after importing `backend_logic.run`, `notes._shared.storage.write.pipeline` and `roles.digest.run` are not in `sys.modules`.
 - **Measured:** CPython 3.15.2 resolved the 37 dependencies. `pyyaml` (via `uvicorn[standard]`) has no cp315 wheel and was compiled without the C extension: it works, slower. The fallback (all `lazy` removed) passed mypy and the tests outside `test_style`. In this build, `-X lazy_imports` has no option to turn it off: the fallback is editing the code.
 - **Gate:** `tests/gates/test_style.py::test_every_top_level_import_is_lazy` and its self-test.
@@ -143,10 +143,11 @@ The complete guide is in [vertical-pipelines.md](vertical-pipelines.md); the nam
 
 ### D2. HTTP edge without pydantic; resources in the `lifespan`
 
-- **Rule:** the frontend reads bytes, decodes through the single door (`backend.run(DecodeText(...))`) and checks the wire shape in a dataclass. Store, locks and clock are born in the `lifespan` through `backend.run(PrepareResources(...))`; constructing the app does not touch disk.
+- **Rule:** the HTTP adapter reads bytes, decodes through the single door (`backend.run(DecodeText(...))`) and checks the wire shape in a dataclass. Store, locks and clock are born in the `lifespan` through `backend.run(PrepareResources(...))`; constructing the app does not touch disk.
 - **Why:** `pydantic.BaseModel` models introduce `Any` and fail `disallow_any_explicit`. If the owner wants pydantic at the edge, it is a recorded decision with a gate adjustment; in `backend_logic`, never.
 - **Gate:** `tests/example/test_http_notes.py::test_app_construction_touches_no_disk_until_the_lifespan_starts`, `tests/gates/test_architecture.py::test_logic_does_not_import_http`.
 - **Does not prove:** transport security, authentication or body limits.
+- **Name:** the package is `http_adapter/`, not `*_frontend`. The door is `backend_logic/run.py`; this package is an adapter that goes through it, and it has no UI. A second transport gets a sibling with the same suffix (`cli_adapter/`) and the same rules; the gates' `HTTP`/`ADAPTER` constants must then list it too.
 
 ### D3. Validate rejects, never fixes; path confined per segment
 
@@ -178,7 +179,7 @@ The complete guide is in [vertical-pipelines.md](vertical-pipelines.md); the nam
 
 ### D7. Tests are split by lifetime: gates, mechanisms, example
 
-- **Rule:** `tests/gates/` holds the global gates (style, architecture, config) that every project keeps unchanged; they read only `backend_logic`/`backend_frontend` and mention the domain only inside synthetic self-test strings. `tests/mechanisms/` holds the tests of the shipped mechanisms and moves with them. `tests/example/` holds the example-domain tests and is deleted with `notes/` and `roles/`. A project's own tests go in `tests/<family>/`. Helpers shared by test folders live in `tests/support/`, which is on the pytest `pythonpath`. Test folders have no `__init__.py`.
+- **Rule:** `tests/gates/` holds the global gates (style, architecture, config) that every project keeps unchanged; they read only `backend_logic`/`http_adapter` and mention the domain only inside synthetic self-test strings. `tests/mechanisms/` holds the tests of the shipped mechanisms and moves with them. `tests/example/` holds the example-domain tests and is deleted with `notes/` and `roles/`. A project's own tests go in `tests/<family>/`. Helpers shared by test folders live in `tests/support/`, which is on the pytest `pythonpath`. Test folders have no `__init__.py`.
 - **Why:** with every test flat in `tests/`, nothing told a new project which files survive a domain swap; an agent could delete a gate together with the example, or keep example tests that pin the old domain.
 - **Measured:** a copy of the template without `tests/example/` gives a clean mypy and 53 passing tests (gates and mechanisms), against 120 with it.
 - **Gate:** none mechanical; the measurement above is the evidence. Re-run it after changing a gate.

@@ -11,7 +11,7 @@ AuthorId = NewType("AuthorId", str)
 # validates nothing; save admits it (1 on creation, current + 1 on replacement).
 Revision = NewType("Revision", int)
 
-# Closed set: the frontend shows these to clients, so a new code is a contract change.
+# Closed set: the HTTP adapter shows these to clients, so a new code is a contract change.
 type NoteConflictCode = Literal["note_exists", "note_missing", "revision_conflict"]
 
 

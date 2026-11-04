@@ -3,7 +3,7 @@ lazy from typing import Literal, NewType
 # Nominal identity: constructing one validates nothing; only this package's run admits it.
 NoteName = NewType("NoteName", str)
 
-# Closed set: the frontend shows these to clients, so a new code is a contract change.
+# Closed set: the HTTP adapter shows these to clients, so a new code is a contract change.
 type NoteValidationCode = Literal["invalid_name"]
 
 
