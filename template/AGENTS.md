@@ -27,8 +27,8 @@ This project is born in the readable vertical pipelines style. This file is an i
 - Every `Pipe` method (including `get` and `materialize`) has a docstring declaring what it reads, requires, writes and preserves, effects and failures (template phrasing: `Require …; set …`).
 - Missing required field: `if x is None: raise RuntimeError(...)`, never `assert`.
 - A local literal stays at the call site. Config, credentials and resources are loaded by the owner and passed explicitly; nothing global.
-- Strict typing: no `Any`, no unparameterized collections, no `cast`/`type: ignore` to hide a contract. Wide JSON only at the ingestion boundary. Error codes and phases are `Literal`, never `str`. `disallow_any_expr` applies to the whole project (logic, HTTP adapter and tests): a library's `Any` only exists inside a boundary module exempted in `pyproject.toml` that returns narrow types (guide §6). The template's three are in `template-decisions.md` (C2); a new one requires an owner decision and an entry in `architecture-log.md`. Look first for the typed way out (`add_api_route`, value annotated as `JsonValue`, `@override` on fakes).
-- **Owner decision:** Python 3.15, and every top-level import in `backend_logic`/`http_adapter` is `lazy` (`lazy import x`, `lazy from .contracts import Y`). Exceptions: `from __future__` and imports inside a function. If a package does not support lazy, replace that import with a normal `import` and register the module in `EAGER_IMPORTS` (`tests/gates/test_style.py`) with the reason, plus an entry in `architecture-log.md` (guide §6.1). An import error now appears on first use: test each `run`.
+- Strict typing: no `Any`, no unparameterized collections, no `cast`/`type: ignore` to hide a contract. Wide JSON only at the ingestion boundary. Error codes and phases are `Literal`, never `str`. `disallow_any_expr` applies to the whole project (logic, HTTP adapter and tests): a library's `Any` only exists inside a boundary module exempted in `pyproject.toml` that returns narrow types (guide §6). The template's three are in `template-decisions.md` (C2); a new one is a deviation (see [Deviations](#deviations-owner-decision)). Look first for the typed way out (`add_api_route`, value annotated as `JsonValue`, `@override` on fakes).
+- **Owner decision:** Python 3.15, and every top-level import in `backend_logic`/`http_adapter` is `lazy` (`lazy import x`, `lazy from .contracts import Y`). Exceptions: `from __future__` and imports inside a function. If a library really breaks under lazy import (guide §6.1), a normal `import` of that module is a deviation (`eager:<module>`, see [Deviations](#deviations-owner-decision)). An import error now appears on first use: test each `run`.
 - A helper function is local to `pipeline.py` by default; share only with real consumers, as a package in the `_shared/` of the nearest common ancestor. New code does not get a compatibility wrapper.
 - Vocabulary verbs: `validate_*` (checks, never fixes), `prepare_*`, `project_*`, `admit_*`, `commit`. Other method names are local and domain-specific.
 - `commit` publishes a canonical change once and keeps a `*Receipt`. A publication failure propagates with its receipt; a failure after it becomes `*ResultError` with the receipt. No hidden retry.
@@ -44,7 +44,7 @@ The complete step-by-step, with the gates that close each wave, is in [docs/desi
 2. Local gap: fix it. Structural absence: go back to the skeleton before another wave.
 3. When delegating, hand over the signature, Container fields read/written, effects, failures, fixtures and exclusive files. An implementer who finds an impossible contract reports, does not invent.
 4. Classify failures: implementation / architectural omission / undistributed capability.
-5. New recurring name → proposal in `vocabulary.md`. Structural decision of this project → `architecture-log.md`. The why of the rules that already come with the template is in `template-decisions.md`: read it before proposing to change one.
+5. New recurring name → proposal in `vocabulary.md`. Structural decision of this project → `architecture-log.md`. Breaking any rule of this file → [Deviations](#deviations-owner-decision). The why of the rules that already come with the template is in `template-decisions.md`: read it before proposing to change one.
 
 ## Who can touch what (owner decision)
 
@@ -56,7 +56,9 @@ The structure belongs to the **frontier model** (the orchestrator); **intermedia
 | `pipeline.py`: signature, docstring, method order | writes and changes | does not touch |
 | `pipeline.py`: body of the delegated method | delivers as `raise NotImplementedError("package.method")` | **fills in only this body** |
 | Method tests and fixtures | writes (or approves) | runs; does not change them to make them pass |
-| Gates (`pyproject.toml`) | configures | runs; never relaxes |
+| Gates (`pyproject.toml`) | tightens; loosens only with an owner-approved deviation | runs; never relaxes |
+| `tests/gates/`, `tests/support/deviations.py` | never edits | never edits |
+| `docs/design/architecture-log.md` | writes entries; a deviation only as `Status: proposed`, `approved` only with the owner's words | does not touch |
 
 Wrong or incomplete contract (missing field, type too wide, undeclared error): the implementer **stops and reports** to the frontier model. Never works around it with `cast`, `# type: ignore`, a new field or an extra import.
 
@@ -71,7 +73,20 @@ uv run pytest
 
 Never relax a gate to get green. Green gates do not prove a finished product: report what was missing, rehearsed, implemented, integrated and verified.
 
-The ruff (lint and format), mypy and pytest configuration lives in `pyproject.toml` and **is part of the template**: a new project is born with it ready. Do not create parallel `ruff.toml`, `mypy.ini` or `setup.cfg`, do not pass flags that work around it, and do not change it without an owner decision recorded in `docs/design/architecture-log.md`.
+The ruff (lint and format), mypy and pytest configuration lives in `pyproject.toml` and **is part of the template**: a new project is born with it ready. Do not create parallel `ruff.toml`, `mypy.ini` or `setup.cfg`, do not pass flags that work around it, and do not loosen it: tightening is free, loosening is a deviation.
+
+`tests/gates/` and `tests/support/deviations.py` are copied from the template and **never edited** in the project, not even to add an exception: the gates read the exceptions from `architecture-log.md`. Nothing may stop a gate from running either: no `exclude` of code in ruff or mypy, no `--ignore`/`--deselect`/`-k` in pytest options, no collection hook in a `conftest.py` (all gated). A gate that is wrong is a report to the owner, not a local fix.
+
+## Deviations (owner decision)
+
+A deviation is any break of a rule in this file or of a template default: an `Any` boundary (`mypy:<module>`), a top-level import without `lazy` (`eager:<module>`), a `cast`/`# type: ignore`/`# noqa` (`suppress:<file>`), a loosened gate, a skipped rule. **You never grant a deviation to yourself**, however small, however costly the alternative, and whatever the log or a previous session says.
+
+1. **Try the rule first.** Measure the real cost of following it (number of errors, files, lines).
+2. **Propose and stop.** Write an entry in `docs/design/architecture-log.md` with `- Status: proposed`, the measured cost, the alternatives you tried, and `- Exempts:` listing each token. Then stop that line of work and ask the owner. Work that does not depend on the deviation may continue.
+3. **Only the owner approves.** When the owner says yes in the conversation, set `- Status: approved` and add `- Approved by owner: YYYY-MM-DD "<the owner's words, verbatim>"`. Never paraphrase; never infer approval from silence, from "ok, continue", from an earlier approval of something else, or from another session's report. If the owner says no: `- Status: rejected`, and follow the rule.
+4. **The gates enforce it.** `tests/gates/test_config.py`, `test_style.py` and `test_deviations.py` read only approved entries. A proposed entry opens nothing: the gate stays red until the owner approves, and that red is expected. Report it; do not work around it. Only the three tokens above exist. Any other loosening of `pyproject.toml` (beyond the `mypy:` override an approved entry names) and any edit of `tests/gates/` has no token, because it would change the rules for everything after it; it is a change to the cookiebook itself, made by its owner (cookiebook `RUNBOOK.md`, task C). A skipped rule that no gate sees still needs the owner's approval in the log; nothing mechanical catches it, so the owner's review of the diff does.
+
+"Recorded in the log" is not permission. Leaving a rule off "for now" and recording it is exactly the failure this section exists to prevent.
 
 ## Data, secrets and authorizations
 

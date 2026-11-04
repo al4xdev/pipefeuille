@@ -45,8 +45,10 @@ strict = true
 disallow_any_explicit = true
 disallow_any_unimported = true
 # Any never appears in an expression, in any package or test. The three boundary modules
-# below are the only exemptions (docs/design/template-decisions.md, C2); a new one needs an
-# owner decision recorded in docs/design/architecture-log.md.
+# below are the only exemptions (docs/design/template-decisions.md, C2). A new one is a
+# deviation: tests/gates/test_config.py accepts it only if an owner-approved entry of
+# docs/design/architecture-log.md lists `mypy:<module>` (AGENTS.md, "Deviations"). Never loosen
+# anything else here.
 disallow_any_expr = true
 warn_unreachable = true
 strict_bytes = true

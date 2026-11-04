@@ -484,7 +484,7 @@ The goal is not green mypy: it is to **reduce what the implementer has to guess*
 
 Reference configuration (the template's `pyproject.toml`): `mypy strict = true`, `disallow_any_explicit`, `disallow_any_unimported`, **global** `disallow_any_expr` (logic, HTTP adapter and tests), `warn_unreachable`, `strict_bytes` and the extra codes `ignore-without-code`, `redundant-expr`, `redundant-self`, `truthy-bool`, `truthy-iterable`, `possibly-undefined`, `unused-awaitable`, `explicit-override`, `mutable-override`, `exhaustive-match` and `deprecated`; Ruff with `E,F,I,N,W,UP,B,C4,SIM`. The test `tests/gates/test_config.py` fails if this configuration is loosened.
 
-**`Any` only as a last resort, and contained.** When a library hands over `Any` with no typed alternative, it stays trapped in a boundary module with its own name, which narrows the value (`isinstance`, strict decoding) before returning it. Only those modules are exempt from `disallow_any_expr` in `pyproject.toml`. The template has three, explained in [template-decisions.md](template-decisions.md) (C2); a new boundary in the project requires an owner decision and an entry in `architecture-log.md`:
+**`Any` only as a last resort, and contained.** When a library hands over `Any` with no typed alternative, it stays trapped in a boundary module with its own name, which narrows the value (`isinstance`, strict decoding) before returning it. Only those modules are exempt from `disallow_any_expr` in `pyproject.toml`. The template has three, explained in [template-decisions.md](template-decisions.md) (C2); a new boundary in the project is a deviation: the agent proposes it with the measured cost and stops, only the owner approves it, and `tests/gates/test_config.py` accepts the module only when an approved `architecture-log.md` entry lists `mypy:<module>` (`AGENTS.md`, "Deviations"; template-decisions D8):
 
 | Boundary | `Any` from whom | Comes out as |
 | --- | --- | --- |
@@ -517,14 +517,14 @@ The module is only loaded on first use of the name. Importing `backend_logic.run
 
 Language rules:
 
-- `lazy` only applies at the top of the module. An import inside a function, class or `try` stays normal, and the gate does not charge it.
+- `lazy` only applies directly at module level. An import inside a function stays normal and the gate does not charge it, because it runs only when the function is called. An import inside a module-level `if`, `try`, `with` or class body runs at load time, so it is eager and the gate charges it: wrapping an import in `try` is not a way around `lazy`.
 - `from __future__ import ...` and `import *` cannot be lazy.
 - **The error changes place.** A missing module, or an import side effect, only shows up on first use, not when opening the file. That is why the tests that exercise each path (the real `run` of each package) are what guarantees the imports resolve.
 
-**Fallback:** if a package does not work as lazy (registration at import time, a side effect the code depends on, a tool that does not yet understand the syntax), replace the `lazy import` with a normal `import` at that point. The behaviour is the same, only eager. For the gate to accept the swap:
+**Fallback:** if a package does not work as lazy (registration at import time, a side effect the code depends on, a tool that does not yet understand the syntax), replace the `lazy import` with a normal `import` at that point. The behaviour is the same, only eager. The swap is a deviation, and the gate accepts it only after the owner:
 
-1. register the module in `EAGER_IMPORTS` (in `tests/gates/test_style.py`) with the reason;
-2. record the exception in `architecture-log.md`.
+1. the agent shows the failure under `lazy` (traceback or tool output) and proposes an `architecture-log.md` entry with `- Status: proposed` and `- Exempts: \`eager:<module>\``, then stops;
+2. the owner approves; the entry gets `- Status: approved` and the owner's words; `tests/gates/test_style.py::test_every_top_level_import_is_lazy` then accepts that module. The gate file itself is never edited.
 
 To return the whole project to eager, remove every `lazy `. The template was verified this way: same tests green and mypy clean. In this CPython build, `-X lazy_imports` accepts only `all` and `normal` and does not turn off explicit lazy, so the fallback is to change the code, not to pass a flag.
 
@@ -583,7 +583,7 @@ Gate: `tests/gates/test_style.py::test_every_top_level_import_is_lazy`.
 
 Style rule: **do not blindly impose the style's details on the HTTP framework**. The HTTP adapter's hard rules are dependency direction and not duplicating business; names such as `create_app`/`build_router` are HTTP framework idiom, not a violation of the pipelines vocabulary.
 
-Decoding the HTTP body is also an ingestion boundary. **This template's choice** (the style itself does not require it): read bytes, pass through the same strict JSON of the logic (`_shared/json/decode`) through the single door (`backend.run(DecodeText(...))`: duplicates, NaN, surrogates, depth) and check the wire shape in a dataclass, responding with `JSONResponse`. The template avoids pydantic because its models introduce `Any` and the global `disallow_any_explicit` would fail. If the owner prefers pydantic at the edge, record the decision and the gate adjustment in `architecture-log.md`; in `backend_logic`, never.
+Decoding the HTTP body is also an ingestion boundary. **This template's choice** (the style itself does not require it): read bytes, pass through the same strict JSON of the logic (`_shared/json/decode`) through the single door (`backend.run(DecodeText(...))`: duplicates, NaN, surrogates, depth) and check the wire shape in a dataclass, responding with `JSONResponse`. The template avoids pydantic because its models introduce `Any` and the global `disallow_any_explicit` would fail. Pydantic at the edge would loosen `disallow_any_explicit`, which no `architecture-log.md` token opens (`test_config.py` accepts overrides of `disallow_any_expr` only): it is a change to the cookiebook made by its owner, never a deviation an agent grants a project; in `backend_logic`, never.
 
 HTTP handlers do not resolve domain defaults, do not mutate state, do not apply visibility rules and do not duplicate business rules: that is a logical use case with its own `run`.
 
@@ -702,7 +702,7 @@ Number of agents, passing tests and percentages are **not** evidence of completi
 
 - **Package README** (when the package has relevant decisions): what it is, what it is **not**, inputs/responsibilities, explicit corrections relative to the source, and what is missing. E.g.: "This is a projected context, **not** a complete prompt."
 - **Vocabulary** (`docs/design/vocabulary.md`): names defined by the owner and proposals under observation, with the limit of each one.
-- **Architecture log** ([`architecture-log.md`](architecture-log.md), of the new project, born empty), per decision: observation and source → state (absent/rehearsed/implemented/integrated/verified) → diagnosis (1/2/3 above) → decision and reason → evidence needed and what it will **not** prove → later result.
+- **Architecture log** ([`architecture-log.md`](architecture-log.md), of the new project, born empty), per decision: observation and source → state (absent/rehearsed/implemented/integrated/verified) → diagnosis (1/2/3 above) → decision and reason → evidence needed and what it will **not** prove → later result. A deviation entry also carries `Status` (proposed/approved/rejected), the owner's verbatim approval and the `Exempts` tokens the gates read (`AGENTS.md`, "Deviations").
 - The log points to the code; it does not become a parallel tree that looks finished. Historical documents are not rewritten to pretend past coverage.
 - When reporting: "X rehearsals with finite leaves and N real cases demonstrate these handoffs, **not** Y". Never "it works" without evidence from the real component.
 
@@ -768,14 +768,14 @@ Number of agents, passing tests and percentages are **not** evidence of completi
 
 ## 18. What each new project decides (does not come ready-made)
 
-The template brings the form; these choices belong to each project's owner, written in the `FILL IN` sections of `AGENTS.md` and recorded in `architecture-log.md` when they change something of the template:
+The template brings the form; these choices belong to each project's owner, written in the `FILL IN` sections of `AGENTS.md`. When a choice changes something of the template, it follows the deviation protocol (`AGENTS.md`, "Deviations"): the agent proposes, the owner approves in their own words, and only then the `architecture-log.md` entry counts:
 
 - **Domain invariants:** what each role may know, who has authority over which result, what never enters a prompt. The form is fixed (list in `AGENTS.md`, applied by projection before the context, §11); the content belongs to the domain.
 - **Domain identities:** the evidence and lock keys (`session_id`, `turn_number`…) and which IDs may appear in the prompt.
 - **Provider and model per role**, and where the adapters live.
 - **Critics and delegation policy:** whether reviews by critic subagents are on, how many agents per wave, whether there is recursive delegation. A large number of agents is a one-off authorization, not a quota.
 - **Reconstruction profile**, only if the project rebuilds an existing app: private snapshot in `.dumps/` (never importable), parity by differential simulations, preserved route inventory.
-- **Top-level names** (`backend_logic`/`http_adapter`) and the Python version: keep them if they make sense; changing is a recorded decision (3.15 exists because of `lazy import`, §6.1).
+- **Top-level names** (`backend_logic`/`http_adapter`) and the Python version: keep them if they make sense; changing them is an owner-approved decision, never the agent's (3.15 exists because of `lazy import`, §6.1).
 
 The example domain (`notes`, `roles/summarizer`, `roles/digest`) exists to show the form: replace it with the real domain while keeping the mechanisms (`_shared/json/*`, `notes/_shared/storage/*`, the resources of `notes/prepare`) and the style, architecture and configuration tests. When replacing the domain, the mechanisms **change place** according to real use: if only one domain writes to disk, `storage/` goes to its `_shared/`, together with the resources' `prepare/`; if two domains write, `storage/` moves up to `backend_logic/_shared/`. The `test_style.py` gate points out the wrong place.
 

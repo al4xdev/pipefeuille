@@ -37,7 +37,7 @@ Before any code:
 
 1. Copy the template (command in the cookiebook's `RUNBOOK.md`, task A) and run the gates: everything green in the initial state.
 2. Fill in the `<!-- FILL IN -->` sections of `AGENTS.md`: what the product is and is not; domain invariants (what each LLM role may know, who has authority over what); provider and model per role; critics and delegation policy (how many implementers per wave, which models, recursive delegation yes or no); authorizations in force (network, paid model, commit).
-3. Any change to a template rule (see [template-decisions.md](template-decisions.md)) becomes an entry in the [`architecture-log.md`](architecture-log.md).
+3. Any change to a template rule (see [template-decisions.md](template-decisions.md)) follows [AGENTS.md → Deviations](../../AGENTS.md#deviations-owner-decision): the agent writes a `Status: proposed` entry in the [`architecture-log.md`](architecture-log.md) with the measured cost, and only the owner turns it into `approved`, in their own words. The same applies in every later wave.
 
 **Closes when:** `AGENTS.md` has no `FILL IN` left without an answer, or the owner explicitly marked what stays open.
 
@@ -80,7 +80,7 @@ The orchestrator writes the entire tree in real code. Order inside each package,
 **Gates that close Wave 2:**
 
 - `uv run ruff check .`, `uv run ruff format --check .` and `uv run mypy .` **green**;
-- `tests/gates/test_style.py`, `tests/gates/test_architecture.py` and `tests/gates/test_config.py` **green**;
+- every test in `tests/gates/` **green** (`test_style.py`, `test_architecture.py`, `test_config.py`, `test_deviations.py`), with `tests/gates/` identical to the template's;
 - the behaviour tests fail **only** with `NotImplementedError("package.method")`. This list of reds is the Wave 3 backlog. Any other failure (import, type, fixture) is a skeleton error and is fixed before delegating.
 
 This is the most expensive and the most important wave. A loose contract here becomes, in Wave 3, an implementer who invents.
@@ -151,12 +151,13 @@ The implementer replies with one of these two formats, and nothing else:
 For each report:
 
 1. **Run the four gates** on the whole project, not only the package's.
-2. **Check the diff:** only lines inside the body of the delegated method may change. Any other changed line in `backend_logic/`, in the tests or in `pyproject.toml` fails the delivery, even with green gates. (Today this is a manual check with `git diff`; there is not yet a mechanical gate for it.)
-3. **Classify the failure**, if any (guide §13):
+2. **Check the diff:** only lines inside the body of the delegated method may change. Any other changed line in `backend_logic/`, in the tests, in `pyproject.toml` or in `architecture-log.md` fails the delivery, even with green gates. (Today this is a manual check with `git diff`; there is not yet a mechanical gate for it.) A diff that touches `tests/gates/` is rejected from anyone, the orchestrator included.
+3. **Deviations stay proposals.** If the orchestrator itself needs to break a rule to close the wave, it writes a `Status: proposed` entry and asks the owner; the red gate stays red meanwhile. A wave never closes on a deviation the owner has not approved in their own words.
+4. **Classify the failure**, if any (guide §13):
    - **(1) implementation:** contract and wiring existed and the body did not fulfil them → return to the **same** subagent the gate output, without summarizing. The error is the feedback.
    - **(2) architectural omission:** the contract was insufficient (the "contract" report usually falls here) → the orchestrator fixes the skeleton, reruns Wave 2 on that stretch and redistributes.
    - **(3) undistributed capability:** it was never in a delegation package → back to Wave 1/2.
-4. If failures (2) and (3) are numerous or coupled, **stop Wave 3** and go back to the design. Do not accumulate conversions, parameters and methods to make the gate go green.
+5. If failures (2) and (3) are numerous or coupled, **stop Wave 3** and go back to the design. Do not accumulate conversions, parameters and methods to make the gate go green.
 
 **Closes when:** no test fails with `NotImplementedError`, the four gates are green and every diff has been checked.
 
@@ -182,5 +183,5 @@ Rules:
 
 - Write only the method body. A missing required field becomes `if x is None: raise RuntimeError(...)`, never `assert`.
 - Run the indicated gates until they are green. The gate error is your specification: read it and fix it.
-- Never change a test, signature, docstring, contract, Container or configuration to make it pass.
+- Never change a test, signature, docstring, contract, Container or configuration to make it pass, and never write in `architecture-log.md`: a rule you cannot follow is a "contract" report, not a deviation you record.
 - If the contract is impossible, stop and reply with the "contract" report. That is a valid delivery, not a failure.

@@ -1,12 +1,14 @@
 """Guard the shared vocabulary so new packages cannot drift from the guide silently.
 
 Each rule cites docs/design/vertical-pipelines.md. A rule here that a real package needs to
-break is a decision for the owner and architecture-log.md, not a reason to edit the scanner.
+break is a proposal to the owner (AGENTS.md, "Deviations"), never a reason to edit this file.
 """
 
 import ast
 from pathlib import Path
 from typing import Literal
+
+from deviations import approved_targets
 
 ROOT = Path(__file__).resolve().parents[2]
 LOGIC = ROOT / "backend_logic"
@@ -576,15 +578,31 @@ def test_run_composition_has_no_formatter_escapes() -> None:
 
 ADAPTER = ROOT / "http_adapter"
 # §6.1 fallback: a top-level module that breaks under PEP 810 (import-time registration,
-# side effects the code relies on) goes here with the reason, and is imported eagerly.
-# Record the entry in architecture-log.md too. Keys are the imported module as written.
-EAGER_IMPORTS: dict[str, str] = {}
+# side effects the code relies on) is imported eagerly only if an owner-approved entry of
+# architecture-log.md lists it as `eager:<module>` (the module as written in the import).
 
 
-def eager_imports(source: str) -> list[str]:
-    """Top-level imports written without `lazy`, except those PEP 810 forbids or allows."""
+def import_time_imports(tree: ast.AST) -> list[ast.Import | ast.ImportFrom]:
+    """Imports that run when the module loads: everything outside a function body.
+
+    An import inside a module-level `if`, `try`, `with` or class body is eager as well (PEP 810
+    allows `lazy` only directly at module level), so hiding it there still loads the module.
+    """
+    found: list[ast.Import | ast.ImportFrom] = []
+    for child in ast.iter_child_nodes(tree):
+        if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
+            continue
+        if isinstance(child, ast.Import | ast.ImportFrom):
+            found.append(child)
+        else:
+            found.extend(import_time_imports(child))
+    return found
+
+
+def eager_imports(source: str, allowed: frozenset[str] = frozenset()) -> list[str]:
+    """Import-time imports written without `lazy`, except those PEP 810 forbids or allows."""
     found: list[str] = []
-    for node in ast.parse(source).body:
+    for node in import_time_imports(ast.parse(source)):
         if isinstance(node, ast.Import):
             modules = [alias.name for alias in node.names]
         elif isinstance(node, ast.ImportFrom):
@@ -592,10 +610,8 @@ def eager_imports(source: str) -> list[str]:
             if module == "__future__":  # cannot be lazy
                 continue
             modules = [module]
-        else:
-            continue
         if not node.is_lazy:
-            found.extend(module for module in modules if module not in EAGER_IMPORTS)
+            found.extend(module for module in modules if module not in allowed)
     return found
 
 
@@ -608,16 +624,26 @@ def test_eager_import_scanner_reports_only_top_level_eager_imports() -> None:
         "from .pipeline import Pipe\n"
         "def run() -> None:\n"
         "    import sys\n"  # function scope cannot be lazy; not reported
+        "try:\n"
+        "    import shutil\n"  # module-level block: eager, reported
+        "except ImportError:\n"
+        "    raise\n"
+        "if True:\n"
+        "    from .run import run\n"
+        "class Holder:\n"
+        "    import glob\n"
     )
-    assert eager_imports(source) == ["os", ".pipeline"]
+    assert eager_imports(source) == ["os", ".pipeline", "shutil", ".run", "glob"]
+    assert eager_imports(source, frozenset({"os"})) == [".pipeline", "shutil", ".run", "glob"]
 
 
 def test_every_top_level_import_is_lazy() -> None:
     # §6.1: a module costs nothing until its first use; startup loads only the path it takes.
+    allowed = frozenset(approved_targets(ROOT, "eager"))
     violations = [
         f"{path.relative_to(ROOT)}: {module}"
         for folder in (LOGIC, ADAPTER)
         for path in folder.rglob("*.py")
-        for module in eager_imports(path.read_text(encoding="utf-8"))
+        for module in eager_imports(path.read_text(encoding="utf-8"), allowed)
     ]
-    assert not violations, "write `lazy import`, or add the module to EAGER_IMPORTS with why"
+    assert not violations, "write `lazy import`, or propose `eager:<module>` (AGENTS.md)"

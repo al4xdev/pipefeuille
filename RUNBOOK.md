@@ -9,6 +9,7 @@ Before acting, find out what your task is:
 | create a new agent project "in the cookiebook style" | [A. Start a new project](#a-start-a-new-project) |
 | work on a project that was already born from the template | [B. Work on a project born from the template](#b-work-on-a-project-born-from-the-template) |
 | change the guide itself or the template | [C. Maintain the cookiebook](#c-maintain-the-cookiebook) |
+| bring an existing codebase into the cookiebook style | [D. Port an existing project](#d-port-an-existing-project) |
 
 If it is not clear, ask the owner before copying or changing anything.
 
@@ -47,9 +48,9 @@ You are the **orchestrator model** (frontier model). You build the structure; im
    - `tests/<family>/`: the project's own tests, one folder per family.
    - `tests/support/`: helpers shared by test folders (on the pytest `pythonpath`).
 
-6. **Record decisions.** Every structural decision of the new project goes into `docs/design/architecture-log.md`, which is born empty. `template-decisions.md` does not change in the project: it describes the originating template.
+6. **Record decisions.** Every structural decision of the new project goes into `docs/design/architecture-log.md`, which is born empty. A decision that breaks a template rule is only a **proposal** until the owner approves it in their own words ([`AGENTS.md` → Deviations](template/AGENTS.md#deviations-owner-decision)). `template-decisions.md` and `tests/gates/` do not change in the project: they describe and guard the originating template.
 
-**Do not:** relax a gate to get green, create parallel `ruff.toml`/`mypy.ini`, stray modules outside the five names, a root-level `utils/`, commit or call a paid model without written authorization in `AGENTS.md`.
+**Do not:** relax a gate to get green, edit `tests/gates/`, grant yourself a deviation, create parallel `ruff.toml`/`mypy.ini`, stray modules outside the five names, a root-level `utils/`, commit or call a paid model without written authorization in `AGENTS.md`.
 
 ## B. Work on a project born from the template
 
@@ -79,3 +80,18 @@ Changing the cookiebook changes every project born from it afterwards. Therefore
    ```
 
 The docs are written for LLMs, not for humans: be precise and literal, cite real paths and test names, and do not call models by product name (use frontier, intermediate and smaller model).
+
+## D. Port an existing project
+
+Porting is where following a rule costs the most, and so where an agent is most tempted to switch one off "for now". The target is the same as task A: every gate of the template green, with no deviation the owner has not approved in their own words. You are the orchestrator model.
+
+1. **Start from a copy of the template, not from the old tree.** Copy as in task A (step 1) into the destination and confirm the green state. `pyproject.toml`, `tests/gates/` and `tests/support/` come from the template and are never edited; do not bring the old project's linter or type checker settings.
+2. **Measure before moving code.** Against the old code, collect the numbers each gate would report and write them in `.dumps/tasks/` (never in the project): `Any` expressions under `disallow_any_expr`, `cast`/`# type: ignore`/`# noqa` per file, JSON parsing outside a single decoder (`json.loads`, `json.load`, `model_validate_json`…), top-level imports that would not survive `lazy`, modules outside the five names.
+3. **Propose the deviations as one list, then stop.** For each rule you believe cannot be followed, write a `Status: proposed` entry in `docs/design/architecture-log.md` with the measured cost, the alternatives tried and the `Exempts:` tokens ([`AGENTS.md` → Deviations](template/AGENTS.md#deviations-owner-decision)). Show the list to the owner and wait. Do not port the affected code until each entry is approved or rejected. A cost being high is not an argument the agent may settle alone.
+4. **Migrate in the order that removes the most deviations:**
+   1. **JSON first:** every parse goes through `_shared/json/decode` (via `backend.run(DecodeText(...))` at the HTTP edge). This alone removes most `Any` expressions, because `json.loads` is where they come from.
+   2. **Boundaries next:** each remaining library that hands over `Any` gets its own boundary package that narrows the value; each is a `mypy:<module>` proposal.
+   3. **`Any` last:** what is left is the project's own code; it is typed, not exempted.
+   The HTTP layer becomes `http_adapter/`, whatever it was called before, and is covered by the `lazy` gate like `backend_logic/`.
+5. **No gate turned off "for now".** A gate that cannot pass yet stays red and is reported with the count. There is no temporary exemption, no ratchet file, no `per-file-ignores`; if the owner wants a staged migration, they approve each exemption explicitly, and the entry says what removes it.
+6. **Close as task A:** the four gates green, `tests/gates/` identical to the template's (`diff -r <template>/tests/gates tests/gates` is empty), and a report to the owner with what was ported, what was proposed, what was approved and what is still red.
