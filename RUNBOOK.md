@@ -83,6 +83,8 @@ The docs are written for LLMs, not for humans: be precise and literal, cite real
 
 ## D. Port an existing project
 
+If the destination must **behave like** the old app and you will rewrite its code rather than move it, also follow [`skills/reverse-engineering/SKILL.md`](skills/reverse-engineering/SKILL.md) to learn the old behavior by observation; the steps below still apply to the gates.
+
 Porting is where following a rule costs the most, and so where an agent is most tempted to switch one off "for now". The target is the same as task A: every gate of the template green, with no deviation the owner has not approved in their own words. You are the orchestrator model.
 
 1. **Start from a copy of the template, not from the old tree.** Copy as in task A (step 1) into the destination and confirm the green state. `pyproject.toml`, `tests/gates/` and `tests/support/` come from the template and are never edited; do not bring the old project's linter or type checker settings.

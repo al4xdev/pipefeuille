@@ -56,6 +56,7 @@ In the order a new agent should read:
 | 6 | [`template/docs/design/template-decisions.md`](template/docs/design/template-decisions.md) | The why of each template rule, the gate that guards it and what the gate does not prove. |
 | 7 | [`template/docs/design/construction.md`](template/docs/design/construction.md) | Step-by-step of the construction in waves. |
 | 8 | [`template/docs/design/architecture-log.md`](template/docs/design/architecture-log.md) | Decision log **of the new project**; it is born empty, with format and example. |
+| 9 | [`skills/reverse-engineering/SKILL.md`](skills/reverse-engineering/SKILL.md) | Skill for rebuilding an existing app with behavior parity: observe the source segment by segment in isolation, then type and rehearse. |
 
 ## Start a new project
 
