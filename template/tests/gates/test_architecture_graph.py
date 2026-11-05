@@ -2,7 +2,7 @@
 
 The enums live in tests/support/architecture.py; this file pins their values, so a project
 that adds or renames one fails here (template-decisions E1). A value that a real package
-needs is a proposal to the cookiebook's owner, never an edit of either file.
+needs is a proposal to the pipefeuille's owner, never an edit of either file.
 """
 
 from pathlib import Path

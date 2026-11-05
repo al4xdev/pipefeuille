@@ -35,7 +35,7 @@ Each wave only starts with the previous one closed by the gates it requires. If 
 
 Before any code:
 
-1. Copy the template (command in the cookiebook's `RUNBOOK.md`, task A) and run the gates: everything green in the initial state.
+1. Copy the template (command in the pipefeuille's `RUNBOOK.md`, task A) and run the gates: everything green in the initial state.
 2. Fill in the `<!-- FILL IN -->` sections of `AGENTS.md`: what the product is and is not; domain invariants (what each LLM role may know, who has authority over what); provider and model per role; critics and delegation policy (how many implementers per wave, which models, recursive delegation yes or no); authorizations in force (network, paid model, commit).
 3. Any change to a template rule (see [template-decisions.md](template-decisions.md)) follows [AGENTS.md → Deviations](../../AGENTS.md#deviations-owner-decision): the agent writes a `Status: proposed` entry in the [`architecture-log.md`](architecture-log.md) with the measured cost, and only the owner turns it into `approved`, in their own words. The same applies in every later wave.
 

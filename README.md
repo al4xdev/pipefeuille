@@ -1,12 +1,16 @@
-# cookiebook
+<p align="center"><img src="docs/images/pipefeuille.svg" alt="pipefeuille: a slice of mille-feuille with a pipe running down through every layer" width="720"></p>
+
+# pipefeuille
+
+*Pipe* + *mille-feuille*: thin layers of the same shape, stacked, with one pipe running down through all of them.
 
 Reference guide and template for new agent projects to be born in the style of **readable vertical pipelines**: fixed structure, fixed domain naming (`run`, `Pipe`, `Container`, `contracts`, `materialize`, verbs and suffixes) and one philosophy — the code is the blueprint, typed and rehearsed before the logic.
 
-**Agent arriving now?** Start with [`RUNBOOK.md`](RUNBOOK.md): it tells you what your task is here (start a new project, work on a project born from the template, or maintain the cookiebook itself) and the step-by-step for each one.
+**Agent arriving now?** Start with [`RUNBOOK.md`](RUNBOOK.md): it tells you what your task is here (start a new project, work on a project born from the template, or maintain the pipefeuille itself) and the step-by-step for each one.
 
 ## Why it exists
 
-**Errors are good for agents.** A type, lint or test error is cheap, local and precise feedback, and an agent can fix it on its own. The cookbook's structure exists to **turn a hole in a contract into a gate error**, and not into a silent bug.
+**Errors are good for agents.** A type, lint or test error is cheap, local and precise feedback, and an agent can fix it on its own. The pipefeuille's structure exists to **turn a hole in a contract into a gate error**, and not into a silent bug.
 
 The goal is for LLMs to assemble a new project in waves:
 
@@ -89,7 +93,7 @@ In the order a new agent should read:
 ## Start a new project
 
 ```fish
-rsync -a --exclude .venv --exclude '.*_cache' --exclude __pycache__ ~/git/my/cookiebook/template/ ~/git/my/my-project/
+rsync -a --exclude .venv --exclude '.*_cache' --exclude __pycache__ ~/git/my/pipefeuille/template/ ~/git/my/my-project/
 cd ~/git/my/my-project
 git init
 uv sync

@@ -20,7 +20,7 @@ As a tool, from the project root:
     uv run python tests/support/architecture.py --html .dumps/architecture.html
 
 Never edited in a project, like the gates that use it: a new enum value is a change to the
-cookiebook (RUNBOOK, task C).
+pipefeuille (RUNBOOK, task C).
 """
 
 import ast

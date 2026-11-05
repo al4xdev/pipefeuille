@@ -1,6 +1,6 @@
 ---
 name: reverse-engineering
-description: Rebuild an existing application in the cookiebook style by observing the real source, one connected segment at a time, in isolated processes, and deriving typed contracts from what was observed. Use when behavior parity with a source app is required and the destination is not a mechanical port.
+description: Rebuild an existing application in the pipefeuille style by observing the real source, one connected segment at a time, in isolated processes, and deriving typed contracts from what was observed. Use when behavior parity with a source app is required and the destination is not a mechanical port.
 ---
 
 # Reverse engineering a source application into a vertical-pipelines project
@@ -19,9 +19,9 @@ Follow the real entry in call order, **one connected segment at a time**. Do not
 
 `construction.md` assumes one pass over the whole project: survey everything (Wave 1), write the entire skeleton (Wave 2), fill it in (Wave 3). Reverse engineering cannot follow that literally. The contract of a segment exists only after that segment was observed, and a later segment often depends on values the earlier one produced, so the whole skeleton cannot be written up front.
 
-The reconstruction this skill comes from therefore worked in **big waves**: one per connected segment (a slice of the source flow). The cookbook's waves are respected **inside each big wave**, not across the whole project:
+The reconstruction this skill comes from therefore worked in **big waves**: one per connected segment (a slice of the source flow). The pipefeuille's waves are respected **inside each big wave**, not across the whole project:
 
-| Inside one big wave | Cookbook wave |
+| Inside one big wave | Pipefeuille wave |
 | --- | --- |
 | Observe the segment, seal the result, check it independently (steps 2 to 6) | Wave 1, survey |
 | Contracts, Containers, `run`, goldens, rehearsal with typed fakes (steps 7 and 8) | Wave 2, skeleton |
@@ -30,7 +30,7 @@ The reconstruction this skill comes from therefore worked in **big waves**: one 
 
 Wave 0 (owner decisions and authorizations) happens once, before the first big wave. The report of Wave 5 is written per big wave for its segment; real verification of the whole flow happens once, near the end (see "Stop condition").
 
-This is how the method was applied, not a claim that the cookbook's waves were measured to work this way.
+This is how the method was applied, not a claim that the pipefeuille's waves were measured to work this way.
 
 ## Before anything: authorization
 

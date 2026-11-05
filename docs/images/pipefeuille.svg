@@ -1,0 +1,83 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="320" viewBox="0 0 960 320" role="img" aria-labelledby="t d">
+  <title id="t">pipefeuille</title>
+  <desc id="d">A slice of mille-feuille seen from the side, with a glowing pipe running down through every layer; beside it the word pipefeuille.</desc>
+  <defs>
+    <linearGradient id="pipe" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#8b5cf6"/>
+      <stop offset="1" stop-color="#22d3ee"/>
+    </linearGradient>
+    <linearGradient id="word" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#b48cff"/>
+      <stop offset="1" stop-color="#22d3ee"/>
+    </linearGradient>
+    <linearGradient id="pastry" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#f0bf6a"/>
+      <stop offset="1" stop-color="#c98a37"/>
+    </linearGradient>
+    <linearGradient id="cream" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fbf4e6"/>
+      <stop offset="1" stop-color="#ecdfc6"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.3" cy="0.35" r="0.8">
+      <stop offset="0" stop-color="#2a1d5c"/>
+      <stop offset="0.55" stop-color="#0d1624"/>
+      <stop offset="1" stop-color="#090c12"/>
+    </radialGradient>
+    <pattern id="grid" width="24" height="24" patternUnits="userSpaceOnUse">
+      <path d="M24 0H0V24" fill="none" stroke="#ffffff" stroke-opacity="0.04"/>
+    </pattern>
+    <filter id="soft" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="6"/>
+    </filter>
+    <clipPath id="top"><rect x="80" y="74" width="300" height="28" rx="6"/></clipPath>
+  </defs>
+
+  <rect width="960" height="320" rx="24" fill="url(#glow)"/>
+  <rect width="960" height="320" rx="24" fill="url(#grid)"/>
+
+  <!-- plate shadow -->
+  <ellipse cx="230" cy="262" rx="170" ry="12" fill="#000" opacity="0.45"/>
+
+  <!-- layers, bottom to top: pastry, cream, pastry, cream, pastry, icing -->
+  <g>
+    <rect x="80" y="206" width="300" height="46" rx="8" fill="url(#pastry)"/>
+    <path d="M92 220H368M92 232H368M92 242H368" stroke="#a96f27" stroke-opacity="0.55" stroke-width="1.5"/>
+    <rect x="84" y="186" width="292" height="24" rx="6" fill="url(#cream)"/>
+    <rect x="80" y="148" width="300" height="42" rx="8" fill="url(#pastry)"/>
+    <path d="M92 162H368M92 174H368M92 183H368" stroke="#a96f27" stroke-opacity="0.55" stroke-width="1.5"/>
+    <rect x="84" y="128" width="292" height="24" rx="6" fill="url(#cream)"/>
+    <rect x="80" y="98" width="300" height="34" rx="8" fill="url(#pastry)"/>
+    <path d="M92 112H368M92 122H368" stroke="#a96f27" stroke-opacity="0.55" stroke-width="1.5"/>
+    <!-- fondant with the classic feathered chevrons -->
+    <rect x="80" y="74" width="300" height="28" rx="6" fill="#fbf7f0"/>
+    <g clip-path="url(#top)" fill="none" stroke="#5b3a2a" stroke-width="2" stroke-linecap="round">
+      <path d="M70 80L95 96L120 80L145 96L170 80L195 96L220 80L245 96L270 80L295 96L320 80L345 96L370 80L395 96"/>
+      <path d="M70 88L95 104L120 88L145 104L170 88L195 104L220 88L245 104L270 88L295 104L320 88L345 104L370 88L395 104" opacity="0.5"/>
+    </g>
+  </g>
+
+  <!-- effect accents on the left edge, as on the cards of the architecture page -->
+  <g>
+    <rect x="80" y="104" width="5" height="22" rx="2.5" fill="#6fdc8c"/>
+    <rect x="80" y="154" width="5" height="30" rx="2.5" fill="#5ea8ff"/>
+    <rect x="80" y="212" width="5" height="34" rx="2.5" fill="#ffa94d"/>
+  </g>
+
+  <!-- the vertical pipe -->
+  <rect x="219" y="34" width="22" height="236" rx="11" fill="url(#pipe)" opacity="0.55" filter="url(#soft)"/>
+  <rect x="221" y="34" width="18" height="236" rx="9" fill="url(#pipe)"/>
+  <line x1="230" y1="42" x2="230" y2="262" stroke="#ffffff" stroke-opacity="0.9" stroke-width="3" stroke-linecap="round" stroke-dasharray="6 12">
+    <animate attributeName="stroke-dashoffset" from="0" to="-18" dur="0.9s" repeatCount="indefinite"/>
+  </line>
+  <!-- one joint per layer: the steps, in order -->
+  <g fill="#0f1520" stroke="#ffffff" stroke-width="2.5">
+    <circle cx="230" cy="88" r="7"/>
+    <circle cx="230" cy="115" r="7"/>
+    <circle cx="230" cy="169" r="7"/>
+    <circle cx="230" cy="229" r="7"/>
+  </g>
+
+  <!-- wordmark -->
+  <text x="440" y="168" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif" font-size="76" font-weight="800" letter-spacing="-2" fill="url(#word)">pipefeuille</text>
+  <text x="444" y="208" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif" font-size="18" fill="#8e99ae">readable vertical pipelines · the code is the blueprint</text>
+</svg>

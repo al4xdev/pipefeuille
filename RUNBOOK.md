@@ -1,4 +1,4 @@
-# Runbook: what to do when entering the cookiebook
+# Runbook: what to do when entering the pipefeuille
 
 This repository has two things: the **guide** to the vertical pipelines style and the **template** (`template/`), a Python project that runs, passes the gates and serves as a seed for new projects. The guide and the docs live inside the template (`template/docs/design/`), because they travel with every copied project.
 
@@ -6,10 +6,10 @@ Before acting, find out what your task is:
 
 | If the request is… | Task |
 | --- | --- |
-| create a new agent project "in the cookiebook style" | [A. Start a new project](#a-start-a-new-project) |
+| create a new agent project "in the pipefeuille style" | [A. Start a new project](#a-start-a-new-project) |
 | work on a project that was already born from the template | [B. Work on a project born from the template](#b-work-on-a-project-born-from-the-template) |
-| change the guide itself or the template | [C. Maintain the cookiebook](#c-maintain-the-cookiebook) |
-| bring an existing codebase into the cookiebook style | [D. Port an existing project](#d-port-an-existing-project) |
+| change the guide itself or the template | [C. Maintain the pipefeuille](#c-maintain-the-pipefeuille) |
+| bring an existing codebase into the pipefeuille style | [D. Port an existing project](#d-port-an-existing-project) |
 
 If it is not clear, ask the owner before copying or changing anything.
 
@@ -23,7 +23,7 @@ You are the **orchestrator model** (frontier model). You build the structure; im
 
    ```bash
    rsync -a --exclude .venv --exclude '.*_cache' --exclude __pycache__ \
-       ~/git/my/cookiebook/template/ <destination>/
+       ~/git/my/pipefeuille/template/ <destination>/
    cd <destination>
    git init
    uv sync
@@ -61,9 +61,9 @@ The entry point is the project's own `AGENTS.md`, not this file. Follow the trac
 - **Orchestrator:** the whole map, then the gates as specification.
 - **Implementer** (received a delegation package): only the package and [construction.md → For the implementer](template/docs/design/construction.md#for-the-implementer). Do not explore the project. Impossible contract: stop and report.
 
-## C. Maintain the cookiebook
+## C. Maintain the pipefeuille
 
-Changing the cookiebook changes every project born from it afterwards. Therefore:
+Changing the pipefeuille changes every project born from it afterwards. Therefore:
 
 1. **Owner decision first.** A new or changed rule needs explicit approval. It goes into [`template-decisions.md`](template/docs/design/template-decisions.md) with rule, why, measurement, gate and "does not prove". The template's `architecture-log.md` stays empty: it belongs to the new project.
 2. **Code and docs go together.** A rule that changes the code changes, in the same change:
