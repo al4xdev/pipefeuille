@@ -16,6 +16,8 @@ from architecture import (
     build_graph,
     parse_docstring,
     render_html,
+    render_text,
+    step_lines,
 )
 
 
@@ -58,14 +60,24 @@ def test_every_package_is_reached_from_the_root() -> None:
     assert not orphans
 
 
+def test_every_call_is_made_by_a_step_of_run() -> None:
+    # The steps are how a reader follows a run; a call they cannot place (an imported run used
+    # by no method that run reaches) would be missing from the story.
+    graph, _ = build_graph(ROOT)
+    assert not graph.hidden, "\n".join(graph.hidden)
+
+
 def test_the_page_shows_every_node_and_edge() -> None:
     graph, _ = build_graph(ROOT)
     page = render_html(graph)
     for node in graph.nodes.values():
         assert f'data-id="{node.id}"' in page, node.id
+        assert f'data-for="{node.id}"' in page, node.id
     for edge in graph.edges:
         assert f'data-source="{edge.source}" data-target="{edge.target}"' in page, edge
     assert "http://" not in page and "https://" not in page  # self-contained, no network
+    assert "$" not in page.split("<script>")[0]  # every template slot was filled
+    assert render_text(graph)
 
 
 def test_docstring_parser_keeps_notes_and_continuations() -> None:
@@ -159,11 +171,86 @@ def test_graph_scanner_reports_every_violation(tmp_path: Path) -> None:
     ]
     edges = {(edge.source, edge.target): edge for edge in graph.edges}
     assert edges[("backend_logic", "backend_logic.a")].cases == ("A",)
-    assert edges[("backend_logic", "backend_logic.b")].marks == ("loop",)
+    assert edges[("backend_logic", "backend_logic.b")].marks == ("per-item",)
     assert edges[("backend_logic.c", "backend_logic.b")].marks == ("lock",)
     # The family's effects are its cases' effects; its declared 'pure' is ignored.
     assert graph.nodes["backend_logic"].effects == ("model",)
     assert graph.alerts == [
-        "backend_logic calls backend_logic.b inside a loop, and backend_logic.b repeats as "
+        "backend_logic calls backend_logic.b once per item, and backend_logic.b repeats as "
         "'accumulates'"
+    ]
+
+
+STEPS = {
+    "backend_logic/run.py": "def run(initial):\n    pass\n",
+    **{f"backend_logic/{name}/run.py": "def run(initial):\n    pass\n" for name in "qrst"},
+    "backend_logic/p/run.py": (
+        "lazy import asyncio\n"
+        "lazy from backend_logic.q import run as locking\n"
+        "lazy from backend_logic.r import run as asking\n"
+        "lazy from .pipeline import Pipe\n\n\n"
+        "async def run(initial, *, store):\n"
+        "    pipe = Pipe.get(initial).fetch(store=store)\n"
+        "    if initial is None:\n"
+        "        raise ValueError('a guard that only raises is not a step')\n"
+        "    async with locking.run(initial):\n"
+        "        if initial.flag:\n"
+        "            pipe.keep()\n"
+        "        else:\n"
+        "            pipe.drop()\n"
+        "        async with asyncio.TaskGroup() as group:\n"
+        "            for item in initial.items:\n"
+        "                group.create_task(asking.run(item))\n"
+        "    return pipe.materialize()\n"
+    ),
+    "backend_logic/p/pipeline.py": (
+        "lazy from backend_logic.s import run as reading\n"
+        "lazy from backend_logic.t import run as writing\n\n\n"
+        "def helper(value):\n"
+        "    return reading.run(value)\n\n\n"
+        "class Pipe:\n"
+        "    @classmethod\n"
+        "    def get(cls, initial):\n"
+        "        return cls()\n\n"
+        "    def fetch(self, *, store):\n"
+        "        self.values = [helper(item) for item in store]\n"
+        "        return self\n\n"
+        "    def keep(self):\n"
+        "        return self\n\n"
+        "    def drop(self):\n"
+        "        return self\n\n"
+        "    def unused(self):\n"
+        "        writing.run(1)\n\n"
+        "    def materialize(self):\n"
+        "        return self.values\n"
+    ),
+}
+
+
+def test_step_reader_follows_run_in_order_inside_its_frames(tmp_path: Path) -> None:
+    write_tree(tmp_path, STEPS)
+    graph, _ = build_graph(tmp_path)
+    assert step_lines(graph.nodes["backend_logic.p"].steps) == [
+        "get",
+        # A call inside a method's comprehension, through a local helper, is per item.
+        "fetch(store) → s (per item)",
+        "lock → q:",
+        "  if initial.flag:",
+        "    keep",
+        "  else:",
+        "    drop",
+        "  in parallel (TaskGroup), then wait for all:",
+        "    for item in initial.items:",
+        "      asking.run → r",
+        "materialize",
+    ]
+    calls = graph.calls_from("backend_logic.p")
+    assert [(edge.target, edge.marks) for edge in calls] == [
+        ("backend_logic.s", ("per-item",)),
+        ("backend_logic.q", ("lock",)),
+        ("backend_logic.r", ("parallel", "per-item")),
+        ("backend_logic.t", ()),
+    ]
+    assert graph.hidden == [
+        "backend_logic/p: imports the run of backend_logic.t, but no step of its run calls it"
     ]
