@@ -22,6 +22,34 @@ Why it works:
 - **The implementer does not need global context.** The signature, the Container fields it reads and writes, the effects, the failures and the fixtures are enough (item 3 of "Process" in [`AGENTS.md`](template/AGENTS.md)).
 - **Typing as specification.** The more the frontier model types, the less room the implementer has to break the contract. That is why the template uses `Literal` for codes and phases, `NewType` for numbers with their own role, and `Any` only at registered boundaries (guide §6).
 
+## The architecture documents itself
+
+No diagram is drawn by hand. Every project born from the template carries `tests/support/architecture.py`, which reads the code and the closed docstring of each `def run`, and prints the current map:
+
+```fish
+uv run python tests/support/architecture.py                                  # tree, for agents
+uv run python tests/support/architecture.py --json                           # the whole graph
+uv run python tests/support/architecture.py --html .dumps/architecture.html  # page for humans
+```
+
+- **Steps of each `run`, in order.** The tool reads the Pipe methods and the `<alias>.run(...)` calls, and the frames around them: lock, `if`/`else`, `match`/`case`, loop, `TaskGroup` and `try`. It marks each call `per-item`, `lock` or `parallel`.
+- **Declared against derived.** Effects, repeat, loops and concurrency come from the docstring, with values from closed enums. The gates fail a value outside the enums, a declaration the code refutes, a package that no call reaches, and an imported `run` that no step makes.
+- **Alerts.** A `per-item` call into a package that is not `safe` to repeat is listed for the reader to confirm. It does not fail the build.
+
+The page is a single file that never touches the network. It shows the use-case tree, with the `_shared/` shelves apart, and a panel with the steps of the selected package:
+
+![Tree view: the climb from the adapter through each family to the process, shared shelves apart, and the numbered steps of notes/save inside its lock, branch and try frames](docs/images/architecture-tree.png)
+
+A **Tree / Graph** toggle draws every call at once. Hovering a package traces only its calls:
+
+![Graph view with notes/save hovered: its calls light up with animated dashes while the rest fades](docs/images/architecture-graph-trace.png)
+
+Here is the whole graph. It is busier on purpose; the tree is the reading path:
+
+![Graph view fitted to the screen: columns by depth, the shared shelves in dashed bands below, every call as a curve](docs/images/architecture-graph.png)
+
+The rules behind it are in [guide §2.2](template/docs/design/vertical-pipelines.md) and [template-decisions E1, E2](template/docs/design/template-decisions.md).
+
 ## Who can touch what
 
 The structure belongs to the frontier model. The intermediate and smaller models only touch the method they received by delegation.
