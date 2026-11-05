@@ -34,7 +34,7 @@ This project is born in the readable vertical pipelines style. This file is an i
 - Vocabulary verbs: `validate_*` (checks, never fixes), `prepare_*`, `project_*`, `admit_*`, `commit`. Other method names are local and domain-specific.
 - `commit` publishes a canonical change once and keeps a `*Receipt`. A publication failure propagates with its receipt; a failure after it becomes `*ResultError` with the receipt. No hidden retry.
 - Never offload a write to a thread under an async lock. Lock reentrancy is a per-resource decision; multiple locks in fixed order; never evict locks.
-- `backend_logic` never imports FastAPI/Starlette/pydantic/`http_adapter`. `http_adapter` enters only through `backend_logic/run.py` and imports only `contracts` modules; resources are born in the `lifespan`.
+- `backend_logic` never imports FastAPI/Starlette/pydantic/`http_adapter` (the inbound transport). A client of an outbound resource (database, HTTP API, provider) is an adapter of a port in `_shared/<port>/<adapter>/` and declares its own dependency. `http_adapter` enters only through `backend_logic/run.py` and imports only `contracts` modules; resources are born in the `lifespan`.
 - LLM roles are provider-neutral, apply privacy before the context, treat output as a proposal and admit it locally. Budgets in tokens.
 
 ## Process
