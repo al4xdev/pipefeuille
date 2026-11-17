@@ -35,6 +35,8 @@ from pathlib import Path
 from string import Template
 from typing import Literal
 
+from declarations import CATALOGUE, Declaration, misplaced_declarations, read_catalogues
+
 ROOT = Path(__file__).resolve().parents[2]
 LOGIC_NAME = "backend_logic"
 ADAPTER_NAME = "http_adapter"
@@ -171,6 +173,9 @@ class Node:
     repeat: str = ""
     errors: tuple[str, ...] = ()  # *Error classes its own contracts.py defines
     steps: list[Step] = field(default_factory=list)  # the body of `run`, in order
+    # The apps of its catalogue, `<package>/apps/<name>/app.toml` (template-decisions A6):
+    # data, so no node of their own; each binds a use case (`binding_problems`).
+    apps: tuple[Declaration, ...] = ()
 
     @property
     def name(self) -> str:
@@ -709,13 +714,18 @@ def folder_kind(
     return "family" if is_family(run_tree, contracts) else "process"
 
 
+def is_data(relative: Path) -> bool:
+    """A catalogue and everything below it are declarations, not packages: no node."""
+    return CATALOGUE in relative.parts
+
+
 def build_graph(root: Path = ROOT) -> tuple[Graph, list[str]]:
     """The package graph and the problems of every `run` docstring."""
     logic = root / LOGIC_NAME
     folders = sorted(
         folder
         for folder in [logic, *(path for path in logic.rglob("*") if path.is_dir())]
-        if "__pycache__" not in folder.parts
+        if "__pycache__" not in folder.parts and not is_data(folder.relative_to(logic))
     )
     nodes: dict[str, Node] = {}
     trees: dict[str, list[tuple[Path, ast.Module]]] = {}
@@ -785,6 +795,11 @@ def build_graph(root: Path = ROOT) -> tuple[Graph, list[str]]:
         node.effects = tuple(node.doc.values("Effects"))
         node.repeat = next(iter(node.doc.values("Repeat")), "")
 
+    declarations, _ = read_catalogues(logic)  # declaration_problems reports the rest
+    for declaration in declarations:
+        holder = nodes.get(".".join(Path(declaration.holder).parts))
+        if holder is not None:
+            holder.apps = (*holder.apps, declaration)
     edges = import_edges(nodes, trees, defined)
     for node_id, function in functions.items():
         files = {path.name: tree for path, tree in trees[node_id]}
@@ -804,6 +819,70 @@ def build_graph(root: Path = ROOT) -> tuple[Graph, list[str]]:
     problems.extend(effect_problems(graph))
     mark_alerts(graph)
     return graph, problems
+
+
+def use_case_id(use_case: str) -> str:
+    """A declaration's `use_case` (`notes/list`) as a node id (`backend_logic.notes.list`)."""
+    return ".".join([LOGIC_NAME, *use_case.split("/")])
+
+
+def is_use_case(graph: Graph, node_id: str) -> bool:
+    """A package a family dispatches by `case`, outside every `_shared/`."""
+    node = graph.nodes[node_id]
+    return not is_shelved(node_id) and any(
+        edge.source == node.parent and edge.target == node_id and edge.cases
+        for edge in graph.edges
+        if edge.kind == "calls" and graph.nodes[edge.source].kind == "family"
+    )
+
+
+def reaches(graph: Graph, source: str, target: str) -> bool:
+    """Whether source calls target, directly or through the packages it calls."""
+    seen: set[str] = set()
+    pending = [source]
+    while pending:
+        current = pending.pop()
+        if current == target:
+            return True
+        if current not in seen:
+            seen.add(current)
+            pending.extend(edge.target for edge in graph.calls_from(current))
+    return False
+
+
+def binding_problems(graph: Graph, root: Path) -> list[str]:
+    """Each app binds a use case with a `run.py` that sits in its holder or calls it.
+
+    The apps configure the holder's mechanism for that use case, so a use case that never
+    reaches the holder is a binding nothing would honour.
+    """
+    problems: list[str] = []
+    for node in graph.nodes.values():
+        for app in node.apps:
+            target = use_case_id(app.use_case)
+            bound = graph.nodes.get(target)
+            if bound is None or not (root / bound.path / "run.py").is_file():
+                problems.append(
+                    f"{app.path}: use_case {app.use_case!r} is not a package with a run.py"
+                )
+            elif not is_use_case(graph, target):
+                problems.append(
+                    f"{app.path}: use_case {app.use_case!r} is not a use case "
+                    "(no family dispatches it by a case)"
+                )
+            elif not (target.startswith(f"{node.id}.") or reaches(graph, target, node.id)):
+                problems.append(
+                    f"{app.path}: use_case {app.use_case!r} neither sits in "
+                    f"{node.path} nor calls it"
+                )
+    return problems
+
+
+def declaration_problems(graph: Graph, root: Path = ROOT) -> list[str]:
+    """Every problem of the declarations: misplaced, malformed, or a broken binding."""
+    logic = root / LOGIC_NAME
+    _, malformed = read_catalogues(logic)
+    return misplaced_declarations(logic) + malformed + binding_problems(graph, root)
 
 
 def owning_node(module: str, nodes: dict[str, Node]) -> str | None:
@@ -1030,6 +1109,25 @@ def outside_calls(graph: Graph, node: Node) -> list[Edge]:
     ]
 
 
+def bound_by(graph: Graph) -> dict[str, list[Declaration]]:
+    """The apps that bind each use case, by its node id."""
+    found: dict[str, list[Declaration]] = {}
+    for node in graph.nodes.values():
+        for app in node.apps:
+            found.setdefault(use_case_id(app.use_case), []).append(app)
+    return found
+
+
+def app_label(app: Declaration) -> str:
+    """An app by its place in the holder: `apps/list_notes`."""
+    return f"{CATALOGUE}/{app.name}"
+
+
+def holder_label(app: Declaration) -> str:
+    """An app by its full place under backend_logic: `notes/apps/list_notes`."""
+    return f"{display('.'.join(Path(app.holder).parts))}/{app_label(app)}"
+
+
 MARK_WORDS: dict[Mark, str] = {"per-item": "per item", "lock": "lock", "parallel": "in parallel"}
 
 
@@ -1055,6 +1153,7 @@ def render_text(graph: Graph) -> str:
     """For agents: the use cases with the steps of each run, then the shared shelves."""
     lines: list[str] = []
     used_by = users(graph)
+    bindings = bound_by(graph)
     if ADAPTER_NAME in graph.nodes:
         lines.append(f"{ADAPTER_NAME}  [adapter]  {graph.nodes[ADAPTER_NAME].doc.summary}")
         lines.append(f"  enters {LOGIC_NAME}")
@@ -1069,6 +1168,11 @@ def render_text(graph: Graph) -> str:
             names = ", ".join(display(user) for user in used_by[node.id])
             lines.append(f"{pad}  │ used by: {names}")
         lines.extend(f"{pad}  │ {line}" for line in step_lines(node.steps))
+        if node.id in bindings:
+            names = ", ".join(holder_label(app) for app in bindings[node.id])
+            lines.append(f"{pad}  │ bound by: {names}")
+        for app in node.apps:
+            lines.append(f"{pad}  {app_label(app)}/  [app] binds {app.use_case}  {app.summary}")
         for child in children(graph, node.id, shared=shared):
             visit(child, depth + 1, shared)
 
@@ -1115,6 +1219,10 @@ def node_json(node: Node) -> dict[str, object]:
         "response": node.response,
         "skeleton": node.skeleton,
         "steps": [step_json(step) for step in node.steps],
+        "apps": [
+            {"name": app.name, "path": app.path, "use_case": app.use_case, "summary": app.summary}
+            for app in node.apps
+        ],
     }
 
 
@@ -1199,6 +1307,13 @@ def card(graph: Graph, node: Node, used_by: dict[str, list[str]], cases: tuple[s
     if is_shelved(node.id) and node.kind == "process" and node.id in used_by:
         names = ", ".join(display(user) for user in used_by[node.id])
         parts.append(f'<div class="by">used by {esc(names)}</div>')
+    apps = "".join(
+        f'<span class="chip" data-go="{esc(use_case_id(app.use_case))}">'
+        f"{esc(app_label(app))} → {esc(app.use_case)}</span>"
+        for app in node.apps
+    )
+    if apps:
+        parts.append(f'<div class="uses">holds {apps}</div>')
     rel = " ".join(sorted(related))
     return (
         f'<div class="{classes}" data-id="{esc(node.id)}" data-rel="{esc(rel)}" '
@@ -1229,7 +1344,12 @@ def steps_html(steps: list[Step]) -> str:
     return "".join(items)
 
 
-def panel(graph: Graph, node: Node, used_by: dict[str, list[str]]) -> str:
+def panel(
+    graph: Graph,
+    node: Node,
+    used_by: dict[str, list[str]],
+    bindings: dict[str, list[Declaration]],
+) -> str:
     """Everything about one package, shown when it is selected."""
     parts = [
         f"<h2>{esc(display(node.id))}{'/' if node.kind in ('shared', 'grouping') else ''}</h2>",
@@ -1278,6 +1398,20 @@ def panel(graph: Graph, node: Node, used_by: dict[str, list[str]]) -> str:
     if node.id in used_by:
         rows = "".join(f"<li>{go(user, display(user))}</li>" for user in used_by[node.id])
         parts.append(f"<h3>Used by</h3><ul>{rows}</ul>")
+    if node.apps:
+        rows = "".join(
+            f"<li><code>{esc(app_label(app))}/{esc(Path(app.path).name)}</code> binds "
+            f"{go(use_case_id(app.use_case), app.use_case)}: {esc(app.summary)}</li>"
+            for app in node.apps
+        )
+        parts.append(f"<h3>Apps it holds (declarations, no code)</h3><ul>{rows}</ul>")
+    if node.id in bindings:
+        rows = "".join(
+            f"<li>{go('.'.join(Path(app.holder).parts), holder_label(app))}: "
+            f"{esc(app.summary)}</li>"
+            for app in bindings[node.id]
+        )
+        parts.append(f"<h3>Bound by apps</h3><ul>{rows}</ul>")
     if node.skeleton:
         parts.append('<p class="alert">skeleton: some bodies still raise NotImplementedError</p>')
     return f'<section class="panel" data-for="{esc(node.id)}" hidden>{"".join(parts)}</section>'
@@ -1365,6 +1499,7 @@ def graph_data(graph: Graph) -> str:
 def render_html(graph: Graph) -> str:
     """A self-contained page: the use-case tree with shelves apart, a graph view, a step panel."""
     used_by = users(graph)
+    bindings = bound_by(graph)
     cases = {edge.target: edge.cases for edge in graph.edges if edge.kind == "calls" and edge.cases}
 
     def branch(node: Node, shared: bool) -> str:
@@ -1405,7 +1540,7 @@ def render_html(graph: Graph) -> str:
     return PAGE.substitute(
         tree=f'<ul class="tree">{root}</ul>',
         shelves=shelves,
-        panels="".join(panel(graph, node, used_by) for node in graph.nodes.values()),
+        panels="".join(panel(graph, node, used_by, bindings) for node in graph.nodes.values()),
         legend=legend,
         stats=stats,
         data=graph_data(graph),
@@ -1848,7 +1983,10 @@ def main(arguments: list[str]) -> int:
         print(render_text(graph))
     for problem in problems:
         print(f"docstring: {problem}", file=sys.stderr)
-    return 1 if problems else 0
+    declarations = declaration_problems(graph, root)
+    for problem in declarations:
+        print(f"declaration: {problem}", file=sys.stderr)
+    return 1 if problems or declarations else 0
 
 
 if __name__ == "__main__":

@@ -49,7 +49,7 @@ notes/save/
 | `pipeline.py` | `Pipe` and its transformation methods. | A place to hide the sequence; the order stays in `run`. |
 There is no `__init__.py`: folders are namespace packages, and what a package is lives in the docstring of its `def run` ([§2.2](#22-the-run-docstring-and-the-generated-map)), so nothing runs on import and the description has one place.
 
-**The four names are mandatory in every `backend_logic` package, and no other module name exists** (owner decision of this template; see [template-decisions.md](template-decisions.md)). The reason is readability: whoever opens a folder knowing nothing about the domain — what is `codec`? what does `jsonvalue` do? — still knows where to start (`run.py`, `def run`), what the package keeps (`container.py`) and what it exchanges (`contracts.py`). A shared mechanism does not become a loose module (`files.py`, `locks.py`, `jsonvalue.py`): it becomes one package per operation, with a readable name (`storage/write/`, `storage/lock/`, `json/decode/`). The only two folders that are not complete packages are `_shared/` and the groupings inside it (below). `tests/gates/test_style.py` guarantees the shape of each kind of folder and the absence of any other module.
+**The four names are mandatory in every `backend_logic` package, and no other module name exists** (owner decision of this template; see [template-decisions.md](template-decisions.md)). The reason is readability: whoever opens a folder knowing nothing about the domain — what is `codec`? what does `jsonvalue` do? — still knows where to start (`run.py`, `def run`), what the package keeps (`container.py`) and what it exchanges (`contracts.py`). A shared mechanism does not become a loose module (`files.py`, `locks.py`, `jsonvalue.py`): it becomes one package per operation, with a readable name (`storage/write/`, `storage/lock/`, `json/decode/`). The only folders that are not complete packages are `_shared/` and the groupings inside it, and a catalogue of declarations with its apps, which hold no Python at all (both below). `tests/gates/test_style.py` guarantees the shape of each kind of folder and the absence of any other module.
 
 **Depth says who uses it; `_shared/` says it is shared.** The tree is the architecture, and a package's **place** declares who uses it:
 
@@ -77,6 +77,8 @@ backend_logic/
 │   │   └── encode/
 │   └── note_name/      # name authority: notes and roles use it
 ├── notes/              # family: PrepareResources | ListNotes | SaveNote
+│   ├── apps/           # catalogue of declarations: data, no Python
+│   │   └── list_notes/ # app: exactly app.toml, which binds use_case = "notes/list"
 │   ├── _shared/        # used by more than one process of notes
 │   │   └── storage/    # grouping: contracts.py with FileStore
 │   │       ├── _shared/
@@ -95,7 +97,7 @@ backend_logic/
     └── digest/
 ```
 
-Three folder shapes, and only three:
+Three folder shapes of code, and only three (the two folder kinds of declarations hold no code; see "Declarations" below):
 
 | Folder | Files | What it is |
 | --- | --- | --- |
@@ -113,6 +115,34 @@ Rules of `_shared/`, all checked by `tests/gates/test_style.py`:
 Reading the import path already tells the story: `from .encode import run` is "my child"; `from .._shared.path import run` is "a piece that my siblings and I share". When a second consumer appears in another branch, the package **moves up** to the `_shared/` of the new common ancestor, and the gate points to each import to change. When the last consumer goes away, it **moves down** again. In the template this has already happened once: the note name started in `notes/`, but `roles/summarizer` also uses `NoteName`, so it moved up to `backend_logic/_shared/note_name/`.
 
 **Measured on a large project, before adopting.** It was measured on a codebase of 201 packages and 76 levels with children, built in this style before `_shared/` existed. Counting any import, only 16 levels (21%) would gain `_shared/`; counting only `run` calls, 10 levels (13%). Most would end up with 1 or 2 packages. They were not hundreds. The real risk the measurement showed was another: at the root, 6 of 10 packages were "shared" only because one domain uses another. That is why condition 3 is mandatory, and not a detail. The script stays outside the template; the gate in `test_style.py` does the same count.
+
+**Declarations: a catalogue of apps, data bound to a use case.** Some facts are configuration, not code: which use cases a mechanism exposes, under what name, to whom. When such a fact is about one use case and a reviewer must see every one of them in one place, it is a **declaration**, and it lives in a folder that holds no code:
+
+```text
+<package>/apps/                 # catalogue: only app folders, no file of its own
+<package>/apps/<name>/app.toml  # app: exactly this one file, nothing else, no Python
+```
+
+| Folder | Holds | What it is |
+| --- | --- | --- |
+| `apps/` (catalogue) | only app folders, at least one; no file | the declarations of the package that holds it; `apps` is a reserved name, never a package |
+| `apps/<name>/` (app) | exactly `app.toml`; no other file, no folder, no Python | one declaration: the app `<name>` binds one use case |
+
+Rules, checked by `tests/gates/test_style.py` (shape) and `tests/gates/test_declarations.py` (content):
+
+- **The holder is a package.** `apps/` sits directly inside a package (four files, a `run`): the package whose mechanism the apps configure, which is the one that reads them. Never inside `_shared/`, a grouping or another app.
+- **`app.toml` sits only there.** A file named `app.toml` anywhere else under `backend_logic/` fails the gate.
+- **The file is a closed subset of TOML**, read by `tests/support/declarations.py` (standard library only): comment lines (`#`), blank lines and one `key = "value"` per line, with exactly one space on each side of `=`. The keys are `use_case` and `summary`, each exactly once; a value is a string without `"`, `\` or control characters. An unknown key, a repeated key, a missing key, a table, a number or an inline comment fails. Every accepted file is valid TOML with the same meaning. A new key is a change to the pipefeuille (RUNBOOK, task C), like a new enum value of §2.2.
+- **`use_case` binds a use case.** It is a package path under `backend_logic/` (`notes/list`), and the package has a `run.py`, is dispatched by a `case` of its parent family (a use case, never a step of a process nor a package under `_shared/`), and either sits inside the holder or calls the holder, directly or through the packages it calls. A binding that never reaches the mechanism it configures would be honoured by nothing.
+- **`summary`** is one line that says what the app is; the map shows it.
+
+```toml
+# backend_logic/notes/apps/list_notes/app.toml
+use_case = "notes/list"
+summary = "Exposes the sorted names of the stored notes; reads only."
+```
+
+The declaration says **which** use case; what the use case does stays in its `run`. Whoever reads the catalogue at run time is the holder's own mechanism, through its own steps, and closes its own reading the same way; a reader of the declarations never lives in a loose module. The template's example (`backend_logic/notes/apps/list_notes/`) has no run-time reader: it shows the form, and `tests/example/test_notes_apps.py` pins it. A folder of declarations is not a package, so it has no `contracts.py` and no `run`, and the graph makes no node of it (§2.2).
 
 **The climb: family and process.** There are two kinds of package, and `contracts.py` says which:
 
@@ -264,7 +294,11 @@ uv run python tests/support/architecture.py --html .dumps/architecture.html # pa
 
 Each package comes with the **steps of its `run`**, in the order they run: the Pipe methods of the chain and the direct `<alias>.run(...)` calls, inside the frames the code has (lock, `if`/`else`, `match`/`case`, loop, `TaskGroup`, `try`), each step with the packages it calls (a method's calls are read from `pipeline.py`, following `self.<method>` and local helpers). A call is marked `per-item` when it repeats over a collection — in a loop of `run` or inside the method that makes it, so `Loops:` (which speaks only of `run`) can stay `none` — and `lock` or `parallel` from its frame.
 
-The page is self-contained (HTML, no network). On the left, the use cases as a tree: the climb from the adapter through each family down to the process, with the cases each child serves. The `_shared/` packages are not drawn as arrows across it: they sit apart, on one shelf per common parent, and each package shows what it takes from outside its own children as chips (`note_name`, `storage/lock` · lock). Hovering lights up what a package uses and who uses it; selecting it opens a panel with its steps, docstring, request → product, ports and dependencies. Each card's border is coloured by its strongest effect. A **Tree / Graph** toggle (keys `t`/`g`) switches to the whole graph at once: columns by depth, the shelves in bands below, every call as a curve (pan, zoom, hover to trace a package's calls). It is busier than the tree, on purpose; the tree stays the reading path. Both views share a text filter and a filter by effect. It also lists **alerts**: a `per-item` call into a package that is not `safe` to repeat. An alert is a question for the reader, not a failure. `tests/gates/test_architecture_graph.py` fails a value outside the enums, an invented or misplaced section, a declaration the code refutes, a package that no call reaches, and an imported `run` that no step makes (template-decisions E1, E2).
+The page is self-contained (HTML, no network). On the left, the use cases as a tree: the climb from the adapter through each family down to the process, with the cases each child serves. The `_shared/` packages are not drawn as arrows across it: they sit apart, on one shelf per common parent, and each package shows what it takes from outside its own children as chips (`note_name`, `storage/lock` · lock). Hovering lights up what a package uses and who uses it; selecting it opens a panel with its steps, docstring, request → product, ports and dependencies. Each card's border is coloured by its strongest effect. A **Tree / Graph** toggle (keys `t`/`g`) switches to the whole graph at once: columns by depth, the shelves in bands below, every call as a curve (pan, zoom, hover to trace a package's calls). It is busier than the tree, on purpose; the tree stays the reading path. Both views share a text filter and a filter by effect. It also lists **alerts**: a `per-item` call into a package that is not `safe` to repeat. An alert is a question for the reader, not a failure.
+
+**Declarations on the map** (§2, "Declarations"). A catalogue and its apps are data, so they are not nodes: each app hangs on the package that holds it. The text tree shows it under the holder as `apps/<name>/  [app] binds <use_case>  <summary>`, and the bound use case shows `│ bound by: <holder>/apps/<name>`; `--json` gives each node its `apps` (`name`, `path`, `use_case`, `summary`); the page shows a `holds apps/<name> → <use_case>` chip on the holder's card, and the panels list "Apps it holds" and "Bound by apps". The tool prints every declaration problem to stderr as `declaration: …` and exits 1, like a docstring problem.
+
+`tests/gates/test_architecture_graph.py` fails a value outside the enums, an invented or misplaced section, a docstring value the code refutes, a package that no call reaches, and an imported `run` that no step makes (template-decisions E1, E2); `tests/gates/test_declarations.py` fails a misplaced, malformed or unbound declaration (template-decisions A6).
 
 ---
 
@@ -802,6 +836,7 @@ Number of agents, passing tests and percentages are **not** evidence of completi
 - [ ] Do types distinguish real alternatives; do preconditions cover what types do not prove?
 - [ ] Do literals/parameters show decisions and origins, without globals nor megacontainer?
 - [ ] Does sharing have real consumers and improve the reading? Does each package live at the nearest common ancestor of its consumers?
+- [ ] Is every binding of a use case to a mechanism a declaration in the holder's `apps/<name>/app.toml`, with no Python beside it, and does its `use_case` reach the holder (§2, "Declarations")?
 - [ ] Is parallel a `TaskGroup` of sibling `run`s, integrated in fixed order after the barrier?
 - [ ] Do indentation, awaits, effects and barriers tell the same story?
 - [ ] Runs rehearsed with typed fakes and coherent data between packages?

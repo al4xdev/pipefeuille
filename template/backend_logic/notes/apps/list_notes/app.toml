@@ -1,0 +1,5 @@
+# An app of the notes family: a declaration, never code (template-decisions A6).
+# tests/gates/test_declarations.py holds it to the code; tests/example/test_notes_apps.py
+# pins the catalogue.
+use_case = "notes/list"
+summary = "Exposes the sorted names of the stored notes; reads only."

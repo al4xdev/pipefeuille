@@ -19,7 +19,7 @@ The complete guide is in [vertical-pipelines.md](vertical-pipelines.md); the nam
 
 ### A1. Four files in every folder, no `__init__.py`, reading starts at `run.py`
 
-- **Rule:** every `backend_logic` package has exactly `contracts.py`, `container.py`, `pipeline.py` and `run.py`, and no other module. There is no `__init__.py` anywhere in `backend_logic/` or `http_adapter/`: folders are namespace packages (PEP 420). What a package does is the docstring of its `def run` (E1). All reading starts at `run.py`/`def run`. The only exceptions are the two forms of A5: `_shared/` (no module) and the grouping inside it (only `contracts.py`).
+- **Rule:** every `backend_logic` package has exactly `contracts.py`, `container.py`, `pipeline.py` and `run.py`, and no other module. There is no `__init__.py` anywhere in `backend_logic/` or `http_adapter/`: folders are namespace packages (PEP 420). What a package does is the docstring of its `def run` (E1). All reading starts at `run.py`/`def run`. The only exceptions are the two forms of A5, `_shared/` (no module) and the grouping inside it (only `contracts.py`), and the two folder kinds of declarations of A6, which hold no Python at all.
 - **Why:**
   - In an earlier version, `backend_logic/` had no `run.py`; `codec/jsonvalue.py`, `storage/files.py` and `storage/locks.py` were loose modules with names that do not say what they do; `notes/` had `contracts.py` without `run`. The owner, reading, did not know where to start. With fixed names, whoever does not know the domain still knows where the package runs, what it holds and what it exchanges.
   - The `__init__.py` held a one-line docstring that the `run` docstring would repeat once E1 put the description there. Two places for one sentence drift apart; and an `__init__.py` is also the one module that runs on import, where startup code tends to land.
@@ -76,6 +76,47 @@ The complete guide is in [vertical-pipelines.md](vertical-pipelines.md); the nam
 - **Does not prove:**
   - That the package really has its own contract, and is not a promoted convenience function. That is the test "if two copies diverged, would it be a bug?", which stays with the orchestrator's review.
   - That a use case is in the right family.
+
+### A6. Declarations: a catalogue of apps, data bound to a use case
+
+- **Rule:** besides packages, `_shared/` and groupings, the tree may hold declarations, in two folder kinds that hold no Python:
+  - **catalogue** (kind `apps`): a folder named `apps/` directly inside a package, the holder, whose mechanism the apps configure. It holds only app folders, at least one, and no file. `apps` is a reserved name: a folder of that name is always a catalogue, never a package.
+  - **app** (kind `app`): `<holder>/apps/<name>/`. It holds exactly one file, `app.toml`, and nothing else: no other file, no folder, no Python.
+  - `app.toml` sits nowhere else under `backend_logic/`.
+  - The file is a closed subset of TOML read by `tests/support/declarations.py` with the standard library only: comment lines, blank lines and `key = "value"` lines; the keys are `use_case` and `summary`, each exactly once; a value has no `"`, `\` or control characters. An unknown, repeated or missing key, a table, a number or an inline comment fails, and every accepted file is valid TOML with the same meaning.
+  - `use_case` is a package path under `backend_logic/` (`notes/list`) naming a **use case**: a package with a `run.py` that its parent family dispatches by a `case`, outside every `_shared/`. It sits inside the holder or calls the holder, directly or through the packages it calls.
+  - A new key, kind or file name is a change to the pipefeuille (RUNBOOK, task C); a project never edits the reader or the gates to add one.
+  - Template example: `backend_logic/notes/apps/list_notes/app.toml` binds `notes/list`. Guide §2 ("Declarations") and §2.2.
+- **Why:**
+  - In a project born from this template, a mechanism served some use cases to external callers, and which ones it served was a literal table in the HTTP adapter. The template had no place for data in the tree: every folder was `_shared/`, a grouping or a package of exactly four files. The first placement, a declaration beside each bound use case's `run.py`, scattered those bindings through the families, so reviewing all of them meant walking the whole tree. The owner moved them into one catalogue inside the package of the mechanism they configure, one folder per binding, and then made the shape a generic rule of the template (2026-11-17, "Sim, regra genérica").
+  - Data and not code: a binding is a fact a reviewer reads in a list, not a composition; one folder per app gives one diff per app.
+  - A closed schema, read strictly, for the reason of C1 and D1: the readers and writers are language models, and an open format invites improvised keys. YAML needs a library; `tomllib` and `json` return `Any` (`dict[str, Any]`), which `disallow_any_expr` rejects in `tests/support/` without a new boundary (C2). So the reader parses a TOML subset by hand, with no `Any`.
+  - The binding must reach the holder: the apps configure the holder's mechanism for that use case, so a use case that never reaches it would be a binding that nothing honours. The originating project checked that its use case reached the mechanism's code through its imports; the generic form is the graph's call reachability.
+  - Alternatives discarded:
+    - the declaration beside the use case's `run.py`, which scatters the bindings;
+    - a top-level tree of declarations, which separates the data from the mechanism that reads it;
+    - "the graph skips any folder with no Python below it", which is silent: a misnamed data folder would vanish from the map instead of failing. The template names the two kinds, so the graph and the shape gate both know them;
+    - an open schema, because the gate cannot hold a key it does not know to the code.
+- **Measured:**
+  - In the project where the need appeared: one catalogue with two apps, each binding a use case of a different family to the same mechanism.
+  - On a copy of the template, each of four mutations turned the gates red, and reverting it made them green again (145 passed):
+    - a `helper.py` inside the app folder failed `test_style.py::test_every_folder_has_the_files_its_kind_requires` and `::test_no_module_outside_the_mandatory_names`;
+    - a second file (`README.md`) in the app failed `::test_every_folder_has_the_files_its_kind_requires`;
+    - `app.toml` copied beside `notes/list/run.py` failed `test_declarations.py::test_every_declaration_sits_in_a_catalogue`;
+    - `use_case = "notes/listing"` failed `test_declarations.py::test_every_app_binds_a_use_case_of_its_holder` and both tests of `tests/example/test_notes_apps.py`.
+  - In the last two mutations, `uv run python tests/support/architecture.py` printed the problem as `declaration: …` and exited 1.
+- **Gate:**
+  - Shape: `tests/gates/test_style.py::test_every_folder_has_the_files_its_kind_requires` (kinds `apps` and `app`), with the self-test `::test_shape_scanner_reports_every_declaration_rule`. That self-test covers Python in an app, a second file, a folder in an app, a file in a catalogue, a catalogue in `_shared/` and an empty catalogue.
+  - Content: `tests/gates/test_declarations.py::test_every_declaration_sits_in_a_catalogue`, `::test_every_declaration_is_well_formed` and `::test_every_app_binds_a_use_case_of_its_holder`, with two self-tests:
+    - `::test_declaration_reader_is_strict` covers a repeated, unknown or missing key, a table, a number, an inline comment, the spacing, an escape, a `_shared` path and an empty summary;
+    - `::test_declaration_scanners_report_every_misplacement_and_broken_binding` covers a declaration beside a `run.py`, one too deep, a missing key, a missing package, a step of a process and a use case that never reaches the holder. It also checks that no node is made below a catalogue.
+  - Map: `tests/support/architecture.py` (`binding_problems`, `declaration_problems`; the apps on `Node.apps`).
+  - Example: `tests/example/test_notes_apps.py` pins the notes catalogue.
+- **Does not prove:**
+  - That anything reads a catalogue at run time: in the template nothing does, and in a project the holder's own reader and its tests carry that, including whether that reader is as strict as the gate's.
+  - That the `summary` tells the truth, or that a fact belongs in a declaration rather than in code: that is review.
+  - Anything about other files: only `app.toml` and the shape of the two kinds are checked. A data file with another name inside a package is not reported, because the shape gate looks only at `.py` names in packages.
+  - Reachability through anything but the `<alias>.run(...)` calls the graph sees (E1).
 
 ---
 
@@ -178,9 +219,9 @@ The complete guide is in [vertical-pipelines.md](vertical-pipelines.md); the nam
 
 ### D6. Style gates have a self-test
 
-- **Rule:** each scanner in `tests/gates/test_style.py`, `tests/gates/test_architecture.py` and `tests/gates/test_boundaries.py` has a test that runs it against a synthetic violating source.
+- **Rule:** each scanner in `tests/gates/test_style.py`, `tests/gates/test_architecture.py`, `tests/gates/test_boundaries.py` and `tests/gates/test_declarations.py` has a test that runs it against a synthetic violating source.
 - **Why:** an import scanner that only read `node.module` passed empty without seeing `from X import a`.
-- **Gate:** `test_style_scanner_reports_every_rule`, `test_shape_scanner_reports_every_kind`, `test_placement_scanner_reports_every_rule`, `test_closed_name_scanner_reports_bare_str`, `test_eager_import_scanner_reports_only_top_level_eager_imports`, `test_internal_import_scanner_sees_every_import_form`, `test_log_reader_grants_only_owner_approved_entries`, `test_escape_hatch_scanner_ignores_strings`, `test_collection_hook_scanner_reports_every_hook`, `test_graph_scanner_reports_every_violation`, `test_docstring_parser_keeps_notes_and_continuations`, `test_dynamic_import_scanner_sees_every_form`, `test_third_party_scanner_sees_every_import_form`, `test_dependency_reader_grants_only_what_is_declared`, `test_stub_checker_reports_every_drift`.
+- **Gate:** `test_style_scanner_reports_every_rule`, `test_shape_scanner_reports_every_kind`, `test_placement_scanner_reports_every_rule`, `test_closed_name_scanner_reports_bare_str`, `test_eager_import_scanner_reports_only_top_level_eager_imports`, `test_internal_import_scanner_sees_every_import_form`, `test_log_reader_grants_only_owner_approved_entries`, `test_escape_hatch_scanner_ignores_strings`, `test_collection_hook_scanner_reports_every_hook`, `test_graph_scanner_reports_every_violation`, `test_docstring_parser_keeps_notes_and_continuations`, `test_dynamic_import_scanner_sees_every_form`, `test_third_party_scanner_sees_every_import_form`, `test_dependency_reader_grants_only_what_is_declared`, `test_stub_checker_reports_every_drift`, `test_shape_scanner_reports_every_declaration_rule`, `test_declaration_reader_is_strict`, `test_declaration_scanners_report_every_misplacement_and_broken_binding`.
 - **Does not prove:** semantics. A style gate does not know whether a docstring tells the truth nor whether a `validate_*` fixes in secret.
 
 ### D7. Tests are split by lifetime: gates, mechanisms, example
