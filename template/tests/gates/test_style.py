@@ -8,6 +8,7 @@ import ast
 from pathlib import Path
 from typing import Literal
 
+from declarations import CATALOGUE, DECLARATION
 from deviations import approved_targets
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -27,9 +28,14 @@ PACKAGE_FILES = ("contracts.py", "container.py", "pipeline.py", "run.py")
 SHARED = "_shared"
 SHARED_FILES: tuple[str, ...] = ()
 GROUPING_FILES = ("contracts.py",)
+# §2 (declarations): a package may hold a catalogue, `apps/` (only app folders, no file), and
+# each app holds exactly one declaration, `app.toml`, and nothing else. They are data, not
+# code: names in tests/support/declarations.py, which reads them (template-decisions A6).
+APP_FILES = (DECLARATION,)
 
 
-type FolderKind = Literal["shared", "grouping", "package"]
+type FolderKind = Literal["shared", "grouping", "package", "apps", "app"]
+DATA_KINDS: tuple[FolderKind, ...] = ("apps", "app")
 
 
 def logic_folders(logic: Path = LOGIC) -> list[Path]:
@@ -37,8 +43,21 @@ def logic_folders(logic: Path = LOGIC) -> list[Path]:
     return sorted(folder for folder in folders if "__pycache__" not in folder.parts)
 
 
+def below_logic(folder: Path) -> tuple[str, ...]:
+    """The folder's parts under the last `backend_logic` on its path (the project folder's own
+    name, or its parents', must not decide a kind)."""
+    parts = folder.parts
+    if LOGIC.name not in parts:
+        return parts
+    return parts[len(parts) - parts[::-1].index(LOGIC.name) :]
+
+
 def folder_kind(folder: Path) -> FolderKind:
-    """`_shared/` groups; a run-less child of `_shared/` is a grouping; the rest are packages."""
+    """`apps/` is a catalogue and everything below it an app (data); `_shared/` groups; a
+    run-less child of `_shared/` is a grouping; the rest are packages."""
+    below = below_logic(folder)
+    if CATALOGUE in below:
+        return "apps" if below[-1] == CATALOGUE else "app"
     if folder.name == SHARED:
         return "shared"
     if folder.parent.name == SHARED and not (folder / "run.py").exists():
@@ -200,12 +219,39 @@ def shape_violations(logic: Path) -> list[str]:
     found: list[str] = []
     for folder in logic_folders(logic):
         kind = folder_kind(folder)
+        if kind in DATA_KINDS:
+            found.extend(data_shape_violations(folder, kind, logic))
+            continue
         modules = sorted(path.name for path in folder.glob("*.py"))
         if modules != sorted(expected[kind]):
             found.append(f"{folder.relative_to(logic.parent)}: {kind} has {modules}")
         children = [p for p in folder.iterdir() if p.is_dir() and p.name != "__pycache__"]
         if kind != "package" and not children:
             found.append(f"{folder.relative_to(logic.parent)}: empty {kind}")
+    return found
+
+
+def data_shape_violations(folder: Path, kind: FolderKind, logic: Path) -> list[str]:
+    """§2 (declarations): a catalogue sits in a package and holds only app folders; an app
+    holds exactly its declaration. Nothing below a catalogue is Python."""
+    name = folder.relative_to(logic.parent)
+    entries = sorted(
+        path.name + ("/" if path.is_dir() else "")
+        for path in folder.iterdir()
+        if path.name != "__pycache__"
+    )
+    found: list[str] = []
+    if kind == "apps":
+        holder = folder_kind(folder.parent)
+        if holder != "package":
+            found.append(f"{name}: apps sits in a {holder}; only a package holds a catalogue")
+        files = [entry for entry in entries if not entry.endswith("/")]
+        if files:
+            found.append(f"{name}: apps has files {files}; it holds only app folders")
+        if len(files) == len(entries):
+            found.append(f"{name}: empty apps")
+    elif entries != sorted(APP_FILES):
+        found.append(f"{name}: app has {entries}; it holds exactly {list(APP_FILES)}")
     return found
 
 
@@ -232,6 +278,42 @@ def test_shape_scanner_reports_every_kind(tmp_path: Path) -> None:
         "backend_logic/_shared/empty: empty grouping",
         "backend_logic/old: package has ['__init__.py', 'container.py', 'contracts.py', "
         "'pipeline.py', 'run.py']",
+    ]
+
+
+def test_shape_scanner_reports_every_declaration_rule(tmp_path: Path) -> None:
+    # Guards the guard for the two data kinds: Python inside an app, a second file in an
+    # app, a folder inside an app, a file in a catalogue, a catalogue outside a package, an
+    # empty catalogue. A well-formed app (`a/apps/good/`) reports nothing.
+    four = {
+        f"backend_logic/{package}{name}": ""
+        for package in ("", "a/", "b/")
+        for name in PACKAGE_FILES
+    }
+    write_tree(
+        tmp_path,
+        {
+            **four,
+            "backend_logic/a/apps/good/app.toml": "",
+            "backend_logic/a/apps/code/app.toml": "",
+            "backend_logic/a/apps/code/run.py": "",
+            "backend_logic/a/apps/two/app.toml": "",
+            "backend_logic/a/apps/two/notes.txt": "",
+            "backend_logic/a/apps/deep/app.toml": "",
+            "backend_logic/a/apps/deep/inner/app.toml": "",
+            "backend_logic/a/apps/README.md": "",
+            "backend_logic/_shared/apps/x/app.toml": "",
+        },
+    )
+    (tmp_path / "backend_logic/b/apps").mkdir()
+    assert shape_violations(tmp_path / "backend_logic") == [
+        "backend_logic/_shared/apps: apps sits in a shared; only a package holds a catalogue",
+        "backend_logic/a/apps: apps has files ['README.md']; it holds only app folders",
+        "backend_logic/a/apps/code: app has ['app.toml', 'run.py']; it holds exactly ['app.toml']",
+        "backend_logic/a/apps/deep: app has ['app.toml', 'inner/']; it holds exactly ['app.toml']",
+        "backend_logic/a/apps/two: app has ['app.toml', 'notes.txt']; it holds exactly "
+        "['app.toml']",
+        "backend_logic/b/apps: empty apps",
     ]
 
 
@@ -415,6 +497,8 @@ def placement_violations(logic: Path) -> list[str]:
     edges = import_edges(logic)
     found: list[str] = []
     for folder in logic_folders(logic):
+        if folder_kind(folder) in DATA_KINDS:
+            continue  # a catalogue and its apps hold no code: nothing imports them
         name = str(folder.relative_to(logic.parent))
         if folder.parent.name == SHARED:
             owner = folder.parent.parent

@@ -14,7 +14,8 @@ You have never seen this project. This page says what to read, in what order, an
    5. `backend_logic/notes/prepare/` — the lifetime resources (store, locks, clock);
    6. `backend_logic/roles/summarizer/` and `roles/digest/` — LLM role and parallelism with `TaskGroup`;
    7. the `_shared/` — `backend_logic/_shared/` (`json/`, `note_name/`) and `notes/_shared/storage/`: what neighbours share, one package per operation; first read the `_shared/` block of guide §2;
-   8. `http_adapter/` — the HTTP edge, which enters only through the root.
+   8. `backend_logic/notes/apps/list_notes/app.toml` — a declaration: data, no Python, that binds the use case `notes/list`; first read the "Declarations" block of guide §2;
+   9. `http_adapter/` — the HTTP edge, which enters only through the root.
 4. **[`vertical-pipelines.md`](vertical-pipelines.md)** (the guide) — §1 to §6 in full; the rest through the table below, when the topic appears.
 5. **[`vocabulary.md`](vocabulary.md)** — before naming anything.
 6. **[`template-decisions.md`](template-decisions.md)** — the why of each rule and the gate that guards it. Read before thinking about "simplifying" a rule.
