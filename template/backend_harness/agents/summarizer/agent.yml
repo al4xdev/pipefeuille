@@ -1,0 +1,22 @@
+# summarizer, declared to the harness. Outside workspace/: the model never sees it.
+# Schema: agents/_shared/plugins/dsh-plugin-app-tools/agent.js. Read by the image
+# build (runtime/bin/app-profiles.mjs), app-agent and tests/context.mjs.
+# EXAMPLE of the template's example domain (notes): replace it with the real agents.
+description: Summarizes one note in at most three sentences and hands the summary over through finalize_summary.
+# max_run_seconds, max_tokens: enforced in the run by dsh-plugin-app-limits (null = no
+# limit; a notice at 100%, exit 75 at 125%, never rerun). max_attempts: the server's
+# Postgres queue, which reruns a dead run up to it.
+limits:
+  max_run_seconds: 120
+  max_tokens: 50000
+  max_attempts: 2
+tools:
+  # dsh-plugin-app-fs's read, for workspace/style.md (read-only, from the template).
+  shared: [read]
+  # The tools of plugins/ (its own), with logic's E1 vocabulary (Effects, Repeat).
+  own:
+    finalize_summary:
+      effects:
+        writes: the accepted summary, as one JSON line on stdout, which the harness stores as the run's output.
+      repeat:
+        fails: after the summary is accepted, a second call is rejected (the run is over); a call with problems hands nothing over and may be repeated.

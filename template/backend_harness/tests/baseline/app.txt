@@ -1,0 +1,16 @@
+profile app  route deepseek-official/deepseek-flash  preset -
+bundles @deepseek-ai/dsh-base, @deepseek-ai/dsh-headless
+options {"reasoningEffort":"low","maxTokens":256000,"toolHistory":{"tools":[],"updates":[]}}
+
+== system sections (2)
+-- deployment:persona-prefix (0 chars)
+
+
+-- deployment:persona-suffix (0 chars)
+
+
+== messages (1)
+-- #1 user/user (24 chars)
+context probe: reply OK.
+
+== tools (0)

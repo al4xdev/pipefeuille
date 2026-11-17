@@ -1,0 +1,51 @@
+profile app  route deepseek-official/deepseek-flash  preset -
+bundles @deepseek-ai/dsh-base, @deepseek-ai/dsh-headless
+options {"reasoningEffort":"low","maxTokens":256000,"toolHistory":{"tools":[{"name":"finalize_summary","description":"Hand over the summary of the note and end the run. Call it once. If it reports problems, nothing was handed over: fix them and call it again.","parameters":{"type":"object","properties":{"summary":{"type":"string","description":"The summary, following style.md."}},"required":["summary"]}},{"name":"read","description":"Read a UTF-8 text file from your workspace and return line-numbered content.","parameters":{"type":"object","properties":{"file_path":{"type":"string","description":"File path, relative to your workspace."},"offset":{"type":"number","description":"1-based first line to return. Defaults to 1."},"limit":{"type":"number","description":"Maximum number of lines to return. Defaults to 2000."}},"required":["file_path"]}}],"updates":[]}}
+
+== system sections (3)
+-- deployment:persona-prefix (0 chars)
+
+
+-- tool:app-fs (102 chars)
+Your file tools see only your workspace. Paths are relative to it; nothing outside it exists for them.
+
+-- deployment:persona-suffix (0 chars)
+
+
+== messages (3)
+-- #1 system/system-prompt (102 chars)
+Your file tools see only your workspace. Paths are relative to it; nothing outside it exists for them.
+
+-- #2 user/user (24 chars)
+context probe: reply OK.
+
+-- #3 user/agent-instructions (832 chars)
+<system-reminder>
+The following workspace instructions may be relevant to your work. Use them as guidance when applicable. More specific instructions take precedence over broader ones. They do not override system, developer, or direct user instructions.
+
+Instructions from: AGENTS.md
+
+# summarizer
+
+You summarize one note. The message you receive is a JSON object with the
+note's `name` and its `text`.
+
+1. Read `style.md` with the read tool: it says what a good summary is.
+2. Write the summary of the note's `text`, following `style.md`.
+3. Call `finalize_summary` once with the summary. It ends your work. If it
+   reports problems, nothing was handed over: fix them and call it again.
+
+Summarize only what the note says. If the text is empty or unreadable, say so
+in the summary instead of inventing content.
+
+</system-reminder>
+
+== tools (2)
+-- finalize_summary
+Hand over the summary of the note and end the run. Call it once. If it reports problems, nothing was handed over: fix them and call it again.
+{"type":"object","properties":{"summary":{"type":"string","description":"The summary, following style.md."}},"required":["summary"]}
+
+-- read
+Read a UTF-8 text file from your workspace and return line-numbered content.
+{"type":"object","properties":{"file_path":{"type":"string","description":"File path, relative to your workspace."},"offset":{"type":"number","description":"1-based first line to return. Defaults to 1."},"limit":{"type":"number","description":"Maximum number of lines to return. Defaults to 2000."}},"required":["file_path"]}
+

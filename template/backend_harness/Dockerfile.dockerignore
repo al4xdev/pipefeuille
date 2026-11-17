@@ -1,0 +1,9 @@
+# The build context is backend_harness/; the image needs only what the Dockerfile
+# copies. Tests, captures and local venvs never enter it.
+tests/
+server/tests/
+server/.venv/
+**/__pycache__/
+**/node_modules/
+**/*.md
+!agents/*/workspace/**/*.md
