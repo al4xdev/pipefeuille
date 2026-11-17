@@ -24,7 +24,7 @@ Why it works:
 
 - **End-to-end view in a single window.** The frontier model sees the whole pipelines in the same context: the climb through `match`, the Containers, the requests and the products. Architecture decisions stay with whoever has that view.
 - **The implementer does not need global context.** The signature, the Container fields it reads and writes, the effects, the failures and the fixtures are enough (item 3 of "Process" in [`AGENTS.md`](template/AGENTS.md)).
-- **Typing as specification.** The more the frontier model types, the less room the implementer has to break the contract. That is why the template uses `Literal` for codes and phases, `NewType` for numbers with their own role, and `Any` only at registered boundaries (guide §6).
+- **Typing as specification.** The more the frontier model types, the less room the implementer has to break the contract. That is why the template uses `Literal` for codes and phases, `NewType` for numbers with their own role, and no `Any`: a library that hands it over is typed first, and exempted only at a boundary the owner approved (guide §6).
 
 ## The architecture documents itself
 

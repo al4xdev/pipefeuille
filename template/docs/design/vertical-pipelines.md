@@ -515,25 +515,30 @@ The goal is not green mypy: it is to **reduce what the implementer has to guess*
 - A number with its own role is `NewType`, not `int`: `Revision` is not swapped for `schema_version`, for a count nor for a size. The step that admits the value is the one that constructs it (`Revision(current.revision + 1)`); a test that needs a value writes it explicitly (`Revision(1)`).
 - Distinguish what cannot be confused: identity vs reference, proposal vs admitted fact, raw document vs validated object, absence vs step not executed, result vs effect receipt.
 - `dict` is legitimate for dynamic keys, with typed key and value. A record of known fields declares the fields.
-- **Untrusted data is wide only at the ingestion boundary** (recursively typed JSON, `bytes`). Admission produces specific types; indeterminacy does not cross the packages. A library API that returns `Any` gets a containment boundary.
+- **Untrusted data is wide only at the ingestion boundary** (recursively typed JSON, `bytes`). Admission produces specific types; indeterminacy does not cross the packages. A library API that returns `Any` is typed where it is called (below, "Type first").
 - The strength of the type corresponds to the step's knowledge: input still subject to rejection is not annotated as admitted.
 - Types do not prove ranges, relations between fields, privacy or temporal order: declare preconditions and validate at runtime.
 - Never relax the gate (exclude a module, turn off a rule) to get green.
 
 Reference configuration (the template's `pyproject.toml`): `mypy strict = true`, `disallow_any_explicit`, `disallow_any_unimported`, **global** `disallow_any_expr` (logic, HTTP adapter and tests), `warn_unreachable`, `strict_bytes` and the extra codes `ignore-without-code`, `redundant-expr`, `redundant-self`, `truthy-bool`, `truthy-iterable`, `possibly-undefined`, `unused-awaitable`, `explicit-override`, `mutable-override`, `exhaustive-match` and `deprecated`; Ruff with `E,F,I,N,W,UP,B,C4,SIM`. The test `tests/gates/test_config.py` fails if this configuration is loosened.
 
-**`Any` only as a last resort, and contained.** When a library hands over `Any` with no typed alternative, it stays trapped in a boundary module with its own name, which narrows the value (`isinstance`, strict decoding) before returning it. Only those modules are exempt from `disallow_any_expr` in `pyproject.toml`. The template has three, explained in [template-decisions.md](template-decisions.md) (C2); a new boundary in the project is a deviation: the agent proposes it with the measured cost and stops, only the owner approves it, and `tests/gates/test_config.py` accepts the module only when an approved `architecture-log.md` entry lists `mypy:<module>` (`AGENTS.md`, "Deviations"; template-decisions D8):
+**Type first; an exemption is the last resort.** A library that hands over `Any`, or ships no types, is typed before anyone proposes to exempt it. The template exempts no module from `disallow_any_expr`: `pyproject.toml` has no `[[tool.mypy.overrides]]`. The ways out, in order (recipes and measurements in [template-decisions.md](template-decisions.md), C2):
 
-| Boundary | `Any` from whom | Comes out as |
+| Way out | When | Example (template paths where it applies) |
 | --- | --- | --- |
-| `backend_logic/_shared/json/decode` | `json.loads` and its hooks | `JsonValue` |
-| `tests/gates/test_config.py` | `tomllib.loads` | values narrowed by `isinstance` |
-| `tests/support/wire_client.py` | Starlette's `TestClient` (reaches mypy entirely as `Any`) | `WireResponse(status: int, body: JsonValue)` |
+| Annotate `object`, then narrow | a call returns `Any`: mypy does not report it when it is assigned directly to an annotated variable | `value: object = json.loads(...)` in `backend_logic/_shared/json/decode/pipeline.py`, narrowed to `JsonValue`; `table` in `tests/gates/test_config.py` rebuilds what `isinstance(x, dict)` narrows to `dict[Any, Any]` |
+| Pass an annotated value | a parameter is typed with `Any` (`JSONResponse(content)`, `json.dumps(obj)`, a `dict[str, Any]` of options) | `body: JsonValue = {...}` in `http_adapter/notes/routes.py`, so the literal is not inferred with `Any` |
+| Specialise the generic | a generic class used bare becomes `X[Any]` | spell the type arguments (`Pool[Connection[Row]]`, not `Pool`) |
+| Use the typed surface | the library offers a typed call next to the `Any`-typed one | routes through `router.add_api_route(path, function, methods=[...])` (FastAPI's decorators are typed with `Any`); `responses=` maps as annotated constants; `ResourceSlot` (`http_adapter/lifetime.py`) instead of `app.state`; `tests/support/wire_client.py` drives the app through `httpx.ASGITransport` and the ASGI lifespan protocol, because Starlette's `TestClient` reaches mypy as `Any` |
+| Write a stub | the library has no types, or its types carry `Any` | `tests/support/tomllib.pyi`: `loads(...) -> dict[str, object]` instead of typeshed's `dict[str, Any]`; on `mypy_path`, so it replaces the library's types; a package keeps its path (`tests/support/<package>/<module>.pyi`); checked against the installed library by `tests/gates/test_boundaries.py::test_every_stub_matches_the_installed_library` |
+| `mypy:<module>` exemption | none of the above works, measured | a deviation: the agent proposes it with the module's error count and the ways out it tried, and stops; only the owner approves; `tests/gates/test_config.py` accepts the override only when an approved `architecture-log.md` entry lists `mypy:<module>` (`AGENTS.md`, "Deviations"; template-decisions D8). The module narrows the value (`isinstance`, strict decoding) before returning it |
 
-Before opening a boundary, look for the typed way out. In the template these were:
+An annotation is a claim mypy does not check: `x: int = library_call()` turns `Any` into `int` exactly like a `cast`. Annotate `object` and narrow; a stub declares `object` wherever the library promises nothing.
 
-- **FastAPI decorators** (`@router.get`) are typed with `Any`: routes are registered with `router.add_api_route(path, function, methods=[...])`.
-- **A library `Any` parameter** (`JSONResponse(content)`, `json.dumps(obj)`): pass an already annotated value (`body: JsonValue = {...}`) so the literal is not inferred with `Any`.
+**Libraries enter by name, and only declared ones** (template-decisions D9). A third-party import in `backend_logic` or `http_adapter` names a library of `[project] dependencies` in `pyproject.toml` (an extra it requests counts); a library that is only installed, as a transitive dependency (`starlette`) or a dev tool (`httpx`), is not granted. Nothing in that code calls or references `importlib.import_module` or `__import__`: a module loaded by string hides a rename and its `Any` from mypy, so it is never the way around a type. Gate: `tests/gates/test_boundaries.py`.
+
+Other typed ways out in the template:
+
 - **Overriding in fakes:** `@override` on every redefined method. Extra data of the fake lives in an attribute of the fake, not in a subclass of the Container, because narrowing an inherited mutable attribute is unsafe (`mutable-override`).
 - **Purposely wrong call** in a runtime guard test: `# type: ignore[call-overload, misc]`, always with code and comment. They are the template's only `ignore`s, both in `tests/example/test_backend_run.py`.
 
@@ -619,7 +624,7 @@ Gate: `tests/gates/test_style.py::test_every_top_level_import_is_lazy`.
 | Domain, agents, pipelines, validation, transactions, persistence, provider/plugin abstractions. | HTTP routes, request/response encoding, status/errors/SSE, assets, transport security. |
 | **Never** imports FastAPI, Starlette, pydantic, transport DTOs or `http_adapter`. | Enters **only** through `backend_logic/run.py` (`from backend_logic import run as backend`) and imports from the logic only `contracts` modules (the types of requests and products). Never imports a family's `run`, `pipeline`, `container` or `helpers`. Resources (store, locks, clock) are prepared in the `lifespan` by `backend.run(PrepareResources(...))` and kept in a local adapter slot (`ResourceSlot`); `tests/gates/test_architecture.py` guarantees the single door. |
 
-The ban is on the **inbound** transport. A client of an outbound resource (a database, an HTTP API, a model provider, an agent runtime or SDK) is an adapter of a port declared in a `contracts.py`: it lives in `_shared/<port>/<adapter>/` as a package that declares its own third-party dependency (`psycopg_pool`, `httpx`), and the `http_adapter` never owns it. The gate lists the inbound frameworks only; it does not list outbound clients.
+The ban is on the **inbound** transport. A client of an outbound resource (a database, an HTTP API, a model provider, an agent runtime or SDK) is an adapter of a port declared in a `contracts.py`: it lives in `_shared/<port>/<adapter>/` as a package, its third-party client (`psycopg_pool`, `httpx`) is declared in `[project] dependencies` of `pyproject.toml`, and the `http_adapter` never owns it. `tests/gates/test_architecture.py::test_logic_does_not_import_http` lists the inbound frameworks only, not outbound clients; `tests/gates/test_boundaries.py::test_third_party_only_from_declared_dependencies` fails an import of a library that is not declared (§6, template-decisions D9).
 
 Style rule: **do not blindly impose the style's details on the HTTP framework**. The HTTP adapter's hard rules are dependency direction and not duplicating business; names such as `create_app`/`build_router` are HTTP framework idiom, not a violation of the pipelines vocabulary.
 
@@ -768,6 +773,7 @@ Number of agents, passing tests and percentages are **not** evidence of completi
 | `MAX_TOKENS = 384` at the top, used once | False configuration | literal at the call site |
 | `from app.settings import SETTINGS` inside a child | Global state | pass explicitly from the owner |
 | `dict[str, Any]` crossing the domain | Hides the contract | declared fields; JSON only at ingestion |
+| `importlib.import_module("lib")` or an override to get past a library's `Any` | mypy no longer reads the library; a rename passes | a plain import of a declared dependency, typed first (§6) |
 | Step engine/phase registry | Hides the order | fixed order in `run` |
 | Parent hands its whole Container to the child | Diffuse coupling | explicit inputs |
 | `helpers/` with a single consumer's function | Premature abstraction | keep it local |
