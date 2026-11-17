@@ -394,6 +394,12 @@ const REFUSED_FUNCTIONS = new Map([
     ['truncate_duckdb_logs', 'logging functions are not allowed'],
     ['query', 'query() and query_table() run SQL given as text: write the query itself'],
     ['query_table', 'query() and query_table() run SQL given as text: write the query itself'],
+    // Runs a serialized statement tree, so it carries any of the above past this check:
+    // json_execute_serialized_sql(json_serialize_sql('SELECT * FROM enable_logging(...)')).
+    ['json_execute_serialized_sql', 'json_execute_serialized_sql() runs SQL given as data: write the query itself'],
+    // Write to the database file; the cache is read-only for a query.
+    ['checkpoint', 'checkpoint functions are not allowed'],
+    ['force_checkpoint', 'checkpoint functions are not allowed'],
 ]);
 // Only whitespace and comments may come before EXPLAIN [ANALYZE]; no string can,
 // so cutting them off cannot change what follows.

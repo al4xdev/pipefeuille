@@ -50,6 +50,11 @@ export function refusals(dir) {
             // SQL given as text, out of reach of any check: a logging call assembled from pieces, a table by name.
             ["SELECT * FROM query('SELECT * FROM enable_' || 'logging(storage=''stdout'')')", /run SQL given as text/],
             ["SELECT * FROM query_table('sessions')", /run SQL given as text/],
+            // A serialized tree executed as data carries a refused call past the parse-tree check.
+            ["SELECT * FROM json_execute_serialized_sql(json_serialize_sql('SELECT * FROM enable_logging(storage = ''stdout'')'))", /runs SQL given as data/],
+            ["SELECT * FROM json_execute_serialized_sql(json_serialize_sql('SELECT * FROM query_table(''sessions'')'))", /runs SQL given as data/],
+            ['SELECT * FROM checkpoint()', /checkpoint functions are not allowed/],
+            ['SELECT * FROM force_checkpoint()', /checkpoint functions are not allowed/],
             ['DETACH cache', STATEMENT],
             ['USE system', STATEMENT],
             ['INSTALL httpfs', STATEMENT],
