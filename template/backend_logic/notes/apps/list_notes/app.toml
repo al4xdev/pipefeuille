@@ -1,5 +1,9 @@
 # An app of the notes family: a declaration, never code (template-decisions A6).
-# tests/gates/test_declarations.py holds it to the code; tests/example/test_notes_apps.py
-# pins the catalogue.
+# tests/gates/test_declarations.py holds the head to the code; tests/example/test_notes_apps.py
+# pins the catalogue and holds each project key under [settings] to the code.
 use_case = "notes/list"
 summary = "Exposes the sorted names of the stored notes; reads only."
+
+[settings]
+# The HTTP path that serves this use case with GET (http_adapter/notes/routes.py).
+route = "/notes"

@@ -11,37 +11,67 @@ declaration is data, never code (template-decisions A6):
 - tests/gates/test_declarations.py reads every declaration with this reader and fails on a
   malformed one, a misplaced one or a broken binding.
 
-The format is a closed subset of TOML, read with the standard library only, so every file
-this reader accepts is valid TOML with the same meaning:
+The format is a closed subset of TOML:
 
     # a comment line; blank lines are allowed
     use_case = "notes/list"
     summary = "One line that says what the app is."
 
-One `key = "value"` per line, with exactly one space on each side of `=`. The keys are KEYS,
-each exactly once. A value is a basic string without `"`, `\\` or control characters. Anything
-else fails: another key, a repeated key, a table, a number, a boolean, an inline comment.
+    [settings]
+    route = "/notes"
+    max_bytes = 1_048_576
 
-Never edited in a project, like the gates that use it: a new key or a new file name is a
-change to the pipefeuille (RUNBOOK, task C).
+The head has exactly HEAD, each once, both strings: the template's gates read them and hold
+them to the code. `[settings]` is optional and holds the project's own keys: the gates check
+only their form, never their meaning, so each one is held to the code by a project-owned test
+in `tests/<family>/` (guide §2, "Declarations").
+
+Reading is two checks, and a file passes only if it passes both:
+
+1. `lexical_problems`, line by line: a blank line, a comment line, the header `[settings]`, or
+   `key = value` with a lowercase key, exactly one space on each side of `=`, and a value that
+   is a basic string without `"`, `\\` or control characters, or a decimal integer (`1_000`,
+   `-3`). Anything else fails: another table, a dotted or quoted key, a float, a boolean, an
+   array, an inline table, an inline comment.
+2. `tomllib.loads` (typed by tests/support/tomllib.pyi, values `object`): it rejects a repeated
+   key or a repeated header and gives the values their TOML meaning; which keys sit at the
+   head and which under `[settings]` is then read from its result.
+
+Never edited in a project, like the gates that use it: a new head key, a new table or a new
+file name is a change to the pipefeuille (RUNBOOK, task C).
 """
 
 import re
-from dataclasses import dataclass
+import tomllib
+from dataclasses import dataclass, field
 from pathlib import Path
 
 CATALOGUE = "apps"  # reserved folder name: a catalogue, never a package
 DECLARATION = "app.toml"  # the one file an app folder holds
-KEYS = ("use_case", "summary")
-# Broad on purpose (TOML bare keys), so a key outside KEYS is reported as unknown, not malformed.
-BARE_KEY = re.compile(r"[A-Za-z0-9_-]+")
+HEAD = ("use_case", "summary")  # the template's keys: read and held by its gates
+SETTINGS = "settings"  # the one table: the project's keys, held by the project's tests
+
+type Setting = str | int
+
+KEY = re.compile(r"[a-z][a-z0-9_]*")
 # A basic string with nothing that needs an escape: what is read is what TOML reads.
-PLAIN_VALUE = re.compile(r'"[^"\\\x00-\x1f\x7f]*"')
+STRING = re.compile(r'"[^"\\\x00-\x1f\x7f]*"')
+# A decimal TOML integer: no `+`, no leading zero, `_` only between digits.
+INTEGER = re.compile(r"-?(0|[1-9](_?[0-9])*)")
 # A comment without control characters (TOML forbids them there too).
 COMMENT = re.compile(r"#[^\x00-\x1f\x7f]*")
 # A package path under backend_logic: `notes/list`. `_shared` cannot match: a use case is
 # never a shared package.
 PACKAGE_PATH = re.compile(r"[a-z][a-z0-9_]*(/[a-z][a-z0-9_]*)*")
+
+
+@dataclass(frozen=True)
+class Content:
+    """What one declaration says, after both checks."""
+
+    use_case: str
+    summary: str
+    settings: dict[str, Setting] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -51,36 +81,86 @@ class Declaration:
     name: str  # the app, its folder's name: list_notes
     use_case: str  # the bound use case, under backend_logic: notes/list
     summary: str
+    settings: dict[str, Setting] = field(default_factory=dict)  # the project's keys
 
 
-def parse_declaration(text: str) -> tuple[dict[str, str], list[str]]:
-    """The keys of one declaration and every problem in it; values only when there is none."""
-    values: dict[str, str] = {}
+def lexical_problems(text: str) -> list[str]:
+    """The lines outside the closed subset. A file with none is valid TOML or repeats a key."""
     problems: list[str] = []
     # Only LF or CRLF end a line, as in TOML: str.splitlines() would also split on \x0b, \x0c
-    # or U+2028 and accept a file that TOML rejects. A lone CR stays in its line and fails.
+    # or U+2028. A lone CR stays in its line and fails.
     for number, line in enumerate(text.replace("\r\n", "\n").split("\n"), start=1):
-        if not line.strip(" ") or COMMENT.fullmatch(line):
+        if not line.strip(" ") or COMMENT.fullmatch(line) or line == f"[{SETTINGS}]":
             continue
         key, separator, value = line.partition(" = ")
-        if not separator or not BARE_KEY.fullmatch(key) or not PLAIN_VALUE.fullmatch(value):
-            problems.append(f'line {number}: not `key = "value"`: {line!r}')
-        elif key not in KEYS:
-            problems.append(f"line {number}: unknown key {key!r}; the keys are {list(KEYS)}")
-        elif key in values:
-            problems.append(f"line {number}: repeated key {key!r}")
+        if not (
+            separator
+            and KEY.fullmatch(key)
+            and (STRING.fullmatch(value) or INTEGER.fullmatch(value))
+        ):
+            problems.append(f'line {number}: not `key = "text"` or `key = 123`: {line!r}')
+    return problems
+
+
+def table(value: object) -> dict[str, object]:
+    """A TOML table with its keys as str. isinstance alone would narrow to dict[Any, Any]."""
+    if not isinstance(value, dict):
+        raise TypeError("expected a TOML table")
+    return {str(key): item for key, item in value.items()}
+
+
+def structure(document: dict[str, object]) -> tuple[Content | None, list[str]]:
+    """The head and `[settings]`, read from tomllib's result."""
+    problems = [
+        f"unknown key {key!r}; the head keys are {list(HEAD)}, and a project's own keys go "
+        f"under [{SETTINGS}]"
+        for key in document
+        if key not in (*HEAD, SETTINGS)
+    ]
+    head: dict[str, str] = {}
+    for key in HEAD:
+        value = document.get(key)
+        if value is None:
+            problems.append(f"missing key {key!r}")
+        elif not isinstance(value, str):
+            problems.append(f"{key}: must be a string")
         else:
-            values[key] = value[1:-1]
-    problems.extend(f"missing key {key!r}" for key in KEYS if key not in values)
-    use_case = values.get("use_case")
+            head[key] = value
+    settings: dict[str, Setting] = {}
+    if SETTINGS in document:
+        given = table(document[SETTINGS])
+        if not given:
+            problems.append(f"[{SETTINGS}]: empty; leave the header out")
+        for key, value in given.items():
+            if key in HEAD:
+                problems.append(f"[{SETTINGS}] {key}: a head key; write it before [{SETTINGS}]")
+            elif isinstance(value, str | int) and not isinstance(value, bool):
+                settings[key] = value
+            else:  # the lexical check already refuses it; the type is never assumed
+                problems.append(f"[{SETTINGS}] {key}: must be a string or an integer")
+    use_case = head.get("use_case")
     if use_case is not None and not PACKAGE_PATH.fullmatch(use_case):
         problems.append(
             f"use_case: {use_case!r} is not a package path under backend_logic (`notes/list`)"
         )
-    summary = values.get("summary")
+    summary = head.get("summary")
     if summary is not None and not summary.strip():
         problems.append("summary: empty")
-    return ({} if problems else values), problems
+    if problems or use_case is None or summary is None:
+        return None, problems
+    return Content(use_case, summary, settings), []
+
+
+def parse_declaration(text: str) -> tuple[Content | None, list[str]]:
+    """What one declaration says, or None and the problems of the first check that failed."""
+    lexical = lexical_problems(text)
+    if lexical:
+        return None, lexical
+    try:
+        document = tomllib.loads(text)
+    except tomllib.TOMLDecodeError as error:  # a repeated key or header
+        return None, [f"not TOML: {error}"]
+    return structure(document)
 
 
 def declaration_files(logic: Path) -> list[Path]:
@@ -114,17 +194,18 @@ def read_catalogues(logic: Path) -> tuple[list[Declaration], list[str]]:
             continue  # misplaced_declarations reports it
         relative = path.relative_to(logic.parent).as_posix()
         # Bytes, not read_text: universal newlines would turn a lone CR into a line end.
-        values, own = parse_declaration(path.read_bytes().decode("utf-8"))
+        content, own = parse_declaration(path.read_bytes().decode("utf-8"))
         problems.extend(f"{relative}: {problem}" for problem in own)
-        if own:
+        if content is None:
             continue
         found.append(
             Declaration(
                 path=relative,
                 holder=path.parent.parent.parent.relative_to(logic.parent).as_posix(),
                 name=path.parent.name,
-                use_case=values["use_case"],
-                summary=values["summary"],
+                use_case=content.use_case,
+                summary=content.summary,
+                settings=content.settings,
             )
         )
     return found, problems
