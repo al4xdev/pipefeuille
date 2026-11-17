@@ -5,10 +5,11 @@ break is a proposal to the owner (AGENTS.md, "Deviations"), never a reason to ed
 """
 
 import ast
+import os
 from pathlib import Path
 from typing import Literal
 
-from declarations import CATALOGUE, DECLARATION
+from declarations import APP_NAME, CATALOGUE, DECLARATION
 from deviations import approved_targets
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -231,24 +232,36 @@ def shape_violations(logic: Path) -> list[str]:
     return found
 
 
+def entry_name(path: Path) -> str:
+    """An entry as `ls -F` marks it: `@` a symlink, `/` a folder, `|` not a regular file."""
+    if path.is_symlink():
+        return path.name + "@"
+    if path.is_dir():
+        return path.name + "/"
+    if not path.is_file():
+        return path.name + "|"
+    return path.name
+
+
 def data_shape_violations(folder: Path, kind: FolderKind, logic: Path) -> list[str]:
-    """§2 (declarations): a catalogue sits in a package and holds only app folders; an app
-    holds exactly its declaration. Nothing below a catalogue is Python."""
+    """§2 (declarations): a catalogue sits in a package and holds only app folders, each named
+    like a package; an app holds exactly its declaration, a regular file. Nothing below a
+    catalogue is skipped: no Python lives there, so not even a `__pycache__/` may."""
     name = folder.relative_to(logic.parent)
-    entries = sorted(
-        path.name + ("/" if path.is_dir() else "")
-        for path in folder.iterdir()
-        if path.name != "__pycache__"
-    )
+    entries = sorted(entry_name(path) for path in folder.iterdir())
     found: list[str] = []
     if kind == "apps":
         holder = folder_kind(folder.parent)
         if holder != "package":
             found.append(f"{name}: apps sits in a {holder}; only a package holds a catalogue")
-        files = [entry for entry in entries if not entry.endswith("/")]
-        if files:
-            found.append(f"{name}: apps has files {files}; it holds only app folders")
-        if len(files) == len(entries):
+        folders = [entry for entry in entries if entry.endswith("/")]
+        others = [entry for entry in entries if not entry.endswith("/")]
+        if others:
+            found.append(f"{name}: apps has {others}; it holds only app folders")
+        misnamed = [entry for entry in folders if not APP_NAME.fullmatch(entry[:-1])]
+        if misnamed:
+            found.append(f"{name}: app names {misnamed} do not match {APP_NAME.pattern}")
+        if not folders:
             found.append(f"{name}: empty apps")
     elif entries != sorted(APP_FILES):
         found.append(f"{name}: app has {entries}; it holds exactly {list(APP_FILES)}")
@@ -308,12 +321,52 @@ def test_shape_scanner_reports_every_declaration_rule(tmp_path: Path) -> None:
     (tmp_path / "backend_logic/b/apps").mkdir()
     assert shape_violations(tmp_path / "backend_logic") == [
         "backend_logic/_shared/apps: apps sits in a shared; only a package holds a catalogue",
-        "backend_logic/a/apps: apps has files ['README.md']; it holds only app folders",
+        "backend_logic/a/apps: apps has ['README.md']; it holds only app folders",
         "backend_logic/a/apps/code: app has ['app.toml', 'run.py']; it holds exactly ['app.toml']",
         "backend_logic/a/apps/deep: app has ['app.toml', 'inner/']; it holds exactly ['app.toml']",
         "backend_logic/a/apps/two: app has ['app.toml', 'notes.txt']; it holds exactly "
         "['app.toml']",
         "backend_logic/b/apps: empty apps",
+    ]
+
+
+def test_shape_scanner_skips_nothing_in_data_folders(tmp_path: Path) -> None:
+    # What every other scanner skips or follows is refused below a catalogue: a bytecode
+    # cache (it may hold anything), a symlink (to a folder or to the declaration), a FIFO
+    # named like the declaration, a misnamed app, a catalogue inside an app.
+    write_tree(
+        tmp_path,
+        {
+            **{f"backend_logic/{name}": "" for name in PACKAGE_FILES},
+            **{f"backend_logic/a/{name}": "" for name in PACKAGE_FILES},
+            "backend_logic/a/apps/good/app.toml": "",
+            "backend_logic/a/apps/__pycache__/hidden.py": "",
+            "backend_logic/a/apps/cached/app.toml": "",
+            "backend_logic/a/apps/cached/__pycache__/x.cpython-315.pyc": "",
+            "backend_logic/a/apps/BAD NAME!/app.toml": "",
+            "backend_logic/a/apps/123_app/app.toml": "",
+            "backend_logic/a/apps/host/app.toml": "",
+            "backend_logic/a/apps/host/apps/inner/app.toml": "",
+            "elsewhere/app.toml": "",
+        },
+    )
+    apps = tmp_path / "backend_logic/a/apps"
+    (apps / "linked").symlink_to(tmp_path / "elsewhere", target_is_directory=True)
+    (apps / "pointer").mkdir()
+    (apps / "pointer/app.toml").symlink_to(tmp_path / "elsewhere/app.toml")
+    (apps / "pipe").mkdir()
+    os.mkfifo(apps / "pipe/app.toml")
+    # The symlinked app is reported once, by its catalogue; the target's own content is fine.
+    assert shape_violations(tmp_path / "backend_logic") == [
+        "backend_logic/a/apps: apps has ['linked@']; it holds only app folders",
+        "backend_logic/a/apps: app names ['123_app/', 'BAD NAME!/', '__pycache__/'] do not "
+        "match [a-z][a-z0-9_]*",
+        "backend_logic/a/apps/cached: app has ['__pycache__/', 'app.toml']; it holds exactly "
+        "['app.toml']",
+        "backend_logic/a/apps/host: app has ['app.toml', 'apps/']; it holds exactly ['app.toml']",
+        "backend_logic/a/apps/host/apps: apps sits in a app; only a package holds a catalogue",
+        "backend_logic/a/apps/pipe: app has ['app.toml|']; it holds exactly ['app.toml']",
+        "backend_logic/a/apps/pointer: app has ['app.toml@']; it holds exactly ['app.toml']",
     ]
 
 

@@ -125,20 +125,29 @@ Reading the import path already tells the story: `from .encode import run` is "m
 
 | Folder | Holds | What it is |
 | --- | --- | --- |
-| `apps/` (catalogue) | only app folders, at least one; no file | the declarations of the package that holds it; `apps` is a reserved name, never a package |
-| `apps/<name>/` (app) | exactly `app.toml`; no other file, no folder, no Python | one declaration: the app `<name>` binds one use case |
+| `apps/` (catalogue) | only app folders, at least one, each named `[a-z][a-z0-9_]*`; no file | the declarations of the package that holds it; `apps` is a reserved name, never a package |
+| `apps/<name>/` (app) | exactly `app.toml`, a regular file; no other file, no folder, no Python | one declaration: the app `<name>` binds one use case |
+
+**Nothing below a catalogue is skipped.** Every other scanner leaves out `__pycache__/`, and folders are followed through symlinks. Below `apps/`, a `__pycache__/` is a violation (no Python lives there, so a cache could only hide something). So is a symlink (to a folder or to `app.toml`) and a FIFO or any other non-regular file.
 
 Rules, checked by `tests/gates/test_style.py` (shape) and `tests/gates/test_declarations.py` (content):
 
-- **The holder is a package.** `apps/` sits directly inside a package (four files, a `run`): the package whose mechanism the apps configure, which is the one that reads them. Never inside `_shared/`, a grouping or another app.
-- **`app.toml` sits only there.** A file named `app.toml` anywhere else under `backend_logic/` fails the gate.
+- **The holder is a package.** `apps/` sits directly inside a package (four files, a `run`): the package whose mechanism the apps configure, which is the one that reads them.
+  - A package inside `_shared/` may hold one. A shared mechanism configured for use cases of several families is the natural holder (`_shared/upload/apps/`).
+  - A catalogue never sits directly in the `_shared/` folder, in a grouping, or in another app. A path has exactly one `apps/`.
+- **`app.toml` sits only there.** Any entry named `app.toml` anywhere else under `backend_logic/` fails the gate, whatever it is (file, folder, symlink, FIFO). That includes one inside a `__pycache__/` or below a second `apps/`. In its place it must be a regular UTF-8 file.
 - **The file is a closed subset of TOML**, read by `tests/support/declarations.py` (standard library only), in two parts:
   - **The head:** exactly `use_case` and `summary`, each once, both strings. The template's gates read these two keys and hold them to the code. A new head key is a change to the pipefeuille (RUNBOOK, task C), like a new enum value of §2.2.
   - **`[settings]`:** an optional table, after the head, for the **project's own keys** (a route, a size limit, a quota, a scope). A value is a string or a decimal integer, and the reader returns it typed (`str | int`). The template's gates check only the form of these keys, never their meaning: **every project key is held to the code by a project-owned test in `tests/<family>/`**. A key that no test reads is a value the code may silently ignore. The test reads the declaration with the same reader (`read_catalogues`) and checks the key against the code that should honour it.
-  - **Lines:** comment lines (`#`), blank lines, the header `[settings]`, and `key = value` with a lowercase key and exactly one space on each side of `=`. A string has no `"`, `\` or control characters; an integer is decimal (`1_048_576`, `-3`). Only LF or CRLF end a line.
+  - **Lines:** comment lines (`#`), blank lines, the header `[settings]`, and `key = value` with a lowercase key and exactly one space on each side of `=`. A string has no `"` or `\`; an integer is decimal, with at most 18 digits (`1_048_576`, `-3`; never `-0`). No line holds an invisible or control character: Unicode categories `Cc` (tab included, C0 and C1), `Cf` (bidi overrides, zero-width characters, a BOM), `Zl`, `Zp`, `Co`, `Cs`. A reviewer must see every character the reader reads. Only LF or CRLF end a line.
   - **Fails:** an unknown, repeated or missing head key; a head key under `[settings]`; a repeated key or header; another or nested table; a dotted or quoted key; a float, boolean or array; an inline comment; an empty `[settings]`.
   - The reader checks every line against this subset first, then parses the file with `tomllib`. So every accepted file is valid TOML, read with TOML's meaning.
-- **`use_case` binds a use case.** It is a package path under `backend_logic/` (`notes/list`), and the package has a `run.py`, is dispatched by a `case` of its parent family (a use case, never a step of a process nor a package under `_shared/`), and either sits inside the holder or calls the holder, directly or through the packages it calls. A binding that never reaches the mechanism it configures would be honoured by nothing.
+- **`use_case` binds a use case.** It is a package path under `backend_logic/` (`notes/list`). The package:
+  - is a **process** with a `run.py`, dispatched by a `case` of its parent family;
+  - is never a family (a door to several use cases: binding it would bind all of them), a step of a process, or a package under `_shared/`;
+  - sits strictly inside the holder, or calls the holder through one or more calls.
+
+  A binding that never reaches the mechanism it configures would be honoured by nothing. The holder never binds itself: a declaration says who uses the mechanism, not what the mechanism is.
 - **`summary`** is one line that says what the app is; the map shows it.
 
 ```toml

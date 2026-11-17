@@ -15,6 +15,7 @@ A declaration that a real package needs to break this is a proposal to the owner
 "Deviations"), never a reason to edit this file.
 """
 
+import os
 import random
 import tomllib
 from pathlib import Path
@@ -69,22 +70,54 @@ def test_declaration_reader_is_strict() -> None:
         "ratio = 0.5\n"  # a float
         'tags = ["a"]\n'  # an array
         "limit = 007\n"  # a leading zero
+        "limit = -0\n"  # a negative zero
+        "limit = 1234567890123456789\n"  # 19 digits
+        f"limit = {'9' * 4301}\n"  # tomllib would raise a bare ValueError
         'summary = "x" # trailing\n'  # an inline comment
         'summary="x"\n'  # the spacing
         'summary = "a \\" b"\n'  # an escape
         'a.b = "x"\n'  # a dotted key
-        'use_case = "notes/list"\x0b\n'  # a vertical tab is no line end in TOML
-        "# \x01\n"  # a control character in a comment
-        'summary = "x"\r'  # a lone CR
     )
     assert parse_declaration(lexical) == (
         None,
         [
-            f'line {number}: not `key = "text"` or `key = 123`: {line!r}'
+            f'line {number}: not `key = "text"` or `key = 123`: '
+            + repr(line if len(line) <= 80 else line[:77] + "...")
             for number, line in enumerate(lexical.split("\n"), start=1)
             if line
         ],
     )
+    assert parse_declaration(lexical)[1][8] == (
+        'line 9: not `key = "text"` or `key = 123`: \'limit = ' + "9" * 69 + "...'"
+    )
+    # Invisible or control characters, in a value, a comment or a line end TOML does not have.
+    hidden = (
+        'use_case = "notes/list"\x0b\n'  # a vertical tab is no line end in TOML
+        "# \x01\n"  # a C0 control in a comment
+        'summary = "a\x85b"\n'  # a C1 control (NEL)
+        'summary = "a\u2028b"\n'  # a line separator
+        'summary = "\u202eevil"\n'  # a bidi override
+        'summary = "zero\u200bwidth"\n'  # a zero-width space
+        '\ufeffuse_case = "x"\n'  # a BOM
+        "# tab\there\n"  # a tab
+        'summary = "x"\r'  # a lone CR
+    )
+    assert parse_declaration(hidden) == (
+        None,
+        [
+            "line 1: invisible or control characters ['U+000B']",
+            "line 2: invisible or control characters ['U+0001']",
+            "line 3: invisible or control characters ['U+0085']",
+            "line 4: invisible or control characters ['U+2028']",
+            "line 5: invisible or control characters ['U+202E']",
+            "line 6: invisible or control characters ['U+200B']",
+            "line 7: invisible or control characters ['U+FEFF']",
+            "line 8: invisible or control characters ['U+0009']",
+            "line 9: invisible or control characters ['U+000D']",
+        ],
+    )
+    big = 'use_case = "a"\nsummary = "x"\n[settings]\nlimit = -999_999_999_999_999_999\n'
+    assert parse_declaration(big) == (Content("a", "x", {"limit": -999999999999999999}), [])
     # 2. TOML: a repeated key or header, which only the parse sees.
     assert parse_declaration('use_case = "a"\nuse_case = "b"\n') == (
         None,
@@ -125,6 +158,7 @@ def test_declaration_reader_is_strict() -> None:
 PIECES = (
     *("a", "1", "_", "-", ".", "0", " ", "\t", '"', "\\", "#", "=", "[", "]", "é", "\x0b"),
     *("\x01", "\x7f", "\u2028", "\r", "true", "0.5", "settings", "use_case", "summary"),
+    *("\x85", "\u202e", "\u200b", "\ufeff", "-0", "9" * 20, "-"),
 )
 
 
@@ -230,6 +264,87 @@ def test_declaration_scanners_report_every_misplacement_and_broken_binding(
     assert "  apps/good/  [app] binds a  An app." in text
     assert "│ bound by: m/apps/good" in text
     assert '"use_case": "a/step"' in render_json(graph)
+
+
+HOSTILE = {
+    # The root dispatches the family f (cases C and D); f dispatches its processes c and d; c
+    # calls the shared mechanism _shared/mech.
+    "backend_logic/contracts.py": "type BackendRequest = C | D\n",
+    "backend_logic/run.py": (
+        "lazy from .f import run as serving\n\n\n"
+        "def run(initial):\n"
+        "    match initial:\n"
+        "        case C() | D():\n"
+        "            serving.run(initial)\n"
+    ),
+    "backend_logic/f/contracts.py": "type FRequest = C | D\n",
+    "backend_logic/f/run.py": (
+        "lazy from .c import run as doing\n"
+        "lazy from .d import run as other\n\n\n"
+        "def run(initial):\n"
+        "    match initial:\n"
+        "        case C():\n"
+        "            doing.run(initial)\n"
+        "        case D():\n"
+        "            other.run(initial)\n"
+    ),
+    "backend_logic/f/d/contracts.py": "class D: ...\n",
+    "backend_logic/f/d/run.py": run_source(),
+    "backend_logic/f/c/contracts.py": "class C: ...\n",
+    "backend_logic/f/c/run.py": (
+        "lazy from backend_logic._shared.mech import run as configuring\n\n\n"
+        "def run(initial):\n"
+        "    configuring.run(initial)\n"
+    ),
+    "backend_logic/_shared/mech/run.py": run_source(),
+    # Bound well: inside the holder, and from a shared mechanism the use case calls.
+    "backend_logic/f/apps/ok/app.toml": app("f/c"),
+    "backend_logic/_shared/mech/apps/door/app.toml": app("f/c"),
+    # A family, the holder itself, a catalogue right in _shared/.
+    "backend_logic/f/c/apps/family/app.toml": app("f"),
+    "backend_logic/f/c/apps/itself/app.toml": app("f/c"),
+    "backend_logic/_shared/apps/shelf/app.toml": app("f/c"),
+    # A catalogue inside an app, a declaration in a bytecode cache.
+    "backend_logic/f/apps/nest/app.toml": app("f/c"),
+    "backend_logic/f/apps/nest/apps/inner/app.toml": app("f/c"),
+    "backend_logic/f/__pycache__/apps/cache/app.toml": app("f/c"),
+    "elsewhere/app.toml": app("f/c"),
+}
+
+
+def test_declaration_scanners_refuse_hostile_entries_and_bindings(tmp_path: Path) -> None:
+    write_tree(tmp_path, HOSTILE)
+    logic = tmp_path / "backend_logic"
+    target = tmp_path / "elsewhere/app.toml"
+    (logic / "f/apps/sym").mkdir()
+    (logic / "f/apps/sym/app.toml").symlink_to(target)  # a symlink in place
+    (logic / "f/apps/fifo").mkdir()
+    os.mkfifo(logic / "f/apps/fifo/app.toml")  # reading it would block
+    os.mkfifo(logic / "f/c/app.toml")  # a FIFO beside a run.py
+    (logic / "f/app.toml").symlink_to(tmp_path / "nowhere")  # a broken symlink
+    (logic / "f/apps/latin").mkdir()
+    (logic / "f/apps/latin/app.toml").write_bytes(b'use_case = "f/c"\nsummary = "caf\xe9"\n')
+    graph, _ = build_graph(tmp_path)
+    assert declaration_problems(graph, tmp_path) == [
+        "backend_logic/f/__pycache__/apps/cache/app.toml: a declaration sits only in "
+        "<package>/apps/<name>/app.toml",
+        "backend_logic/f/app.toml: a declaration sits only in <package>/apps/<name>/app.toml",
+        "backend_logic/f/apps/nest/apps/inner/app.toml: a declaration sits only in "
+        "<package>/apps/<name>/app.toml",
+        "backend_logic/f/c/app.toml: a declaration sits only in <package>/apps/<name>/app.toml",
+        "backend_logic/f/apps/fifo/app.toml: not a regular file",
+        "backend_logic/f/apps/latin/app.toml: not UTF-8: 'utf-8' codec can't decode byte 0xe9 "
+        "in position 31: invalid continuation byte",
+        "backend_logic/f/apps/sym/app.toml: not a regular file",
+        "backend_logic/_shared/apps/shelf/app.toml: its catalogue sits in backend_logic/_shared, "
+        "a shared; only a package holds a catalogue",
+        "backend_logic/f/c/apps/family/app.toml: use_case 'f' is a family; an app binds one "
+        "use case, a process",
+        "backend_logic/f/c/apps/itself/app.toml: use_case 'f/c' is the holder itself; an app "
+        "binds a use case inside the holder or one that calls it",
+    ]
+    assert [app.name for app in graph.nodes["backend_logic.f"].apps] == ["nest", "ok"]
+    assert [app.name for app in graph.nodes["backend_logic._shared.mech"].apps] == ["door"]
 
 
 def test_every_declaration_sits_in_a_catalogue() -> None:

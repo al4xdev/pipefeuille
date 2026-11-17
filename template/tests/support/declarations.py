@@ -30,9 +30,10 @@ Reading is two checks, and a file passes only if it passes both:
 
 1. `lexical_problems`, line by line: a blank line, a comment line, the header `[settings]`, or
    `key = value` with a lowercase key, exactly one space on each side of `=`, and a value that
-   is a basic string without `"`, `\\` or control characters, or a decimal integer (`1_000`,
-   `-3`). Anything else fails: another table, a dotted or quoted key, a float, a boolean, an
-   array, an inline table, an inline comment.
+   is a basic string without `"` or `\\`, or a decimal integer of at most 18 digits (`1_000`,
+   `-3`; not `-0`). No line holds an invisible or control character (Unicode categories in
+   HIDDEN). Anything else fails: another table, a dotted or quoted key, a float, a boolean,
+   an array, an inline table, an inline comment.
 2. `tomllib.loads` (typed by tests/support/tomllib.pyi, values `object`): it rejects a repeated
    key or a repeated header and gives the values their TOML meaning; which keys sit at the
    head and which under `[settings]` is then read from its result.
@@ -43,6 +44,7 @@ file name is a change to the pipefeuille (RUNBOOK, task C).
 
 import re
 import tomllib
+import unicodedata
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -54,10 +56,17 @@ SETTINGS = "settings"  # the one table: the project's keys, held by the project'
 type Setting = str | int
 
 KEY = re.compile(r"[a-z][a-z0-9_]*")
+# An app folder's name, like a package's: it is read as a word, never quoted.
+APP_NAME = re.compile(r"[a-z][a-z0-9_]*")
+# Characters a reader cannot see or that change how a line displays: controls (C0 and C1, tab
+# included), format characters (bidi overrides, zero-width spaces, a BOM), line and paragraph
+# separators, private use and surrogates. Refused anywhere in a declaration.
+HIDDEN = frozenset({"Cc", "Cf", "Zl", "Zp", "Co", "Cs"})
 # A basic string with nothing that needs an escape: what is read is what TOML reads.
 STRING = re.compile(r'"[^"\\\x00-\x1f\x7f]*"')
-# A decimal TOML integer: no `+`, no leading zero, `_` only between digits.
-INTEGER = re.compile(r"-?(0|[1-9](_?[0-9])*)")
+# A decimal TOML integer: no `+`, no leading zero, no `-0`, `_` only between digits, and at
+# most 18 digits (tomllib refuses an int of more than 4300 digits with a bare ValueError).
+INTEGER = re.compile(r"0|-?[1-9](_?[0-9]){0,17}")
 # A comment without control characters (TOML forbids them there too).
 COMMENT = re.compile(r"#[^\x00-\x1f\x7f]*")
 # A package path under backend_logic: `notes/list`. `_shared` cannot match: a use case is
@@ -90,6 +99,10 @@ def lexical_problems(text: str) -> list[str]:
     # Only LF or CRLF end a line, as in TOML: str.splitlines() would also split on \x0b, \x0c
     # or U+2028. A lone CR stays in its line and fails.
     for number, line in enumerate(text.replace("\r\n", "\n").split("\n"), start=1):
+        hidden = sorted({f"U+{ord(c):04X}" for c in line if unicodedata.category(c) in HIDDEN})
+        if hidden:
+            problems.append(f"line {number}: invisible or control characters {hidden}")
+            continue
         if not line.strip(" ") or COMMENT.fullmatch(line) or line == f"[{SETTINGS}]":
             continue
         key, separator, value = line.partition(" = ")
@@ -98,7 +111,8 @@ def lexical_problems(text: str) -> list[str]:
             and KEY.fullmatch(key)
             and (STRING.fullmatch(value) or INTEGER.fullmatch(value))
         ):
-            problems.append(f'line {number}: not `key = "text"` or `key = 123`: {line!r}')
+            shown = line if len(line) <= 80 else line[:77] + "..."  # a 5000-digit value
+            problems.append(f'line {number}: not `key = "text"` or `key = 123`: {shown!r}')
     return problems
 
 
@@ -158,20 +172,28 @@ def parse_declaration(text: str) -> tuple[Content | None, list[str]]:
         return None, lexical
     try:
         document = tomllib.loads(text)
-    except tomllib.TOMLDecodeError as error:  # a repeated key or header
+    except ValueError as error:  # TOMLDecodeError: a repeated key or header
         return None, [f"not TOML: {error}"]
     return structure(document)
 
 
 def declaration_files(logic: Path) -> list[Path]:
-    """Every file named like a declaration under logic, wherever it sits."""
-    return sorted(path for path in logic.rglob(DECLARATION) if path.is_file())
+    """Every entry named like a declaration under logic, wherever it sits and whatever it is
+    (a file, a folder, a symlink, a FIFO): a name is enough to be held to the rule."""
+    return sorted(logic.rglob(DECLARATION))
 
 
 def in_place(path: Path, logic: Path) -> bool:
-    """`<holder>/apps/<name>/app.toml` under logic: the only place a declaration may sit."""
+    """`<holder>/apps/<name>/app.toml` under logic, with one catalogue on the path and no
+    bytecode cache: the only place a declaration may sit. A catalogue inside an app, or a
+    declaration in a cache, would hang on a holder that is data, not a package."""
     parts = path.relative_to(logic).parts
-    return len(parts) >= 3 and parts[-3] == CATALOGUE
+    return (
+        len(parts) >= 3
+        and parts[-3] == CATALOGUE
+        and parts.count(CATALOGUE) == 1
+        and "__pycache__" not in parts
+    )
 
 
 def misplaced_declarations(logic: Path) -> list[str]:
@@ -193,8 +215,16 @@ def read_catalogues(logic: Path) -> tuple[list[Declaration], list[str]]:
         if not in_place(path, logic):
             continue  # misplaced_declarations reports it
         relative = path.relative_to(logic.parent).as_posix()
+        if path.is_symlink() or not path.is_file():  # reading a FIFO would block
+            problems.append(f"{relative}: not a regular file")
+            continue
         # Bytes, not read_text: universal newlines would turn a lone CR into a line end.
-        content, own = parse_declaration(path.read_bytes().decode("utf-8"))
+        try:
+            text = path.read_bytes().decode("utf-8")
+        except UnicodeDecodeError as error:
+            problems.append(f"{relative}: not UTF-8: {error}")
+            continue
+        content, own = parse_declaration(text)
         problems.extend(f"{relative}: {problem}" for problem in own)
         if content is None:
             continue
