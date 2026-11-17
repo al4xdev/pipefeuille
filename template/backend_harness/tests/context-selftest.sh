@@ -12,8 +12,10 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 IMAGE="${IMAGE:-app-harness:local}"
+# Named after IMAGE's tag, so two checkouts never share the derived image.
+DEAD="app-harness:context-selftest-$(printf '%s' "${IMAGE##*:}" | tr -c 'A-Za-z0-9_.-' '-')"
 scratch="$(mktemp -d)"
-trap 'rm -rf "${scratch:?}"; docker image rm -f app-harness:context-selftest >/dev/null 2>&1 || true' EXIT
+trap 'rm -rf "${scratch:?}"; docker image rm -f "$DEAD" >/dev/null 2>&1 || true' EXIT
 
 # expect_fail <label> <pattern> <command...>: the command exits nonzero and says <pattern>.
 expect_fail() {
@@ -51,6 +53,6 @@ RUN printf '\nexport function apply() { throw new Error("context-selftest: dead 
  && cat /tmp/dead.js >> /opt/dsh/node_modules/dsh-plugin-app-limits/index.js
 USER node
 DOCKERFILE
-docker build -q -t app-harness:context-selftest "$scratch/dead" >/dev/null
-expect_fail "dead entry" "did not fully boot" env ONLY=app IMAGE=app-harness:context-selftest "$HERE/context.sh"
+docker build -q -t "$DEAD" "$scratch/dead" >/dev/null
+expect_fail "dead entry" "did not fully boot" env ONLY=app IMAGE="$DEAD" "$HERE/context.sh"
 echo "context-selftest: ok (the gate fails on each condition)"

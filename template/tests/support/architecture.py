@@ -19,6 +19,12 @@ As a tool, from the project root:
     uv run python tests/support/architecture.py --json      # the whole graph
     uv run python tests/support/architecture.py --html .dumps/architecture.html
 
+The agents of the runtime layer (backend_harness/agents/<name>/) are nodes too, of kind
+`agent`, read by harness_agents.py from what the model gets (the accepted context capture),
+agent.yml and the profile. A run that hands a work over (`pipe.submit(..., work="<work>")`)
+`dispatches` to the agent the port's AGENTS table names; the agent `answers` the runs that read
+that work back (`pipe.observe(..., work="<work>")`).
+
 Never edited in a project, like the gates that use it: a new enum value is a change to the
 pipefeuille (RUNBOOK, task C).
 """
@@ -36,6 +42,27 @@ from string import Template
 from typing import Literal
 
 from declarations import CATALOGUE, Declaration, misplaced_declarations, read_catalogues
+from harness_agents import (
+    ADAPTER_PACKAGE,
+    AGENTS_FOLDER,
+    AGENTS_TABLE_NAME,
+    HARNESS_NAME,
+    MODEL_ENTRY,
+    OBSERVE_METHOD,
+    PATCH_FILE,
+    PROFILES,
+    SUBMIT_METHOD,
+    AgentFacts,
+    AgentLimits,
+    AgentTool,
+    agents_table,
+    default_model,
+    first_paragraph,
+    profile_of,
+    read_agent,
+    table_modules,
+    work_calls,
+)
 
 ROOT = Path(__file__).resolve().parents[2]
 LOGIC_NAME = "backend_logic"
@@ -96,8 +123,8 @@ NOTE_REQUIRED = {("Loops", Loops.CAPPED.value), ("Concurrency", Concurrency.CALL
 # Effects in the order a node is coloured by: the strongest effect wins.
 EFFECT_STRENGTH = ("model", "network", "writes", "reads", "time", "pure")
 
-type NodeKind = Literal["family", "process", "shared", "grouping", "adapter"]
-type EdgeKind = Literal["calls", "types", "enters"]
+type NodeKind = Literal["family", "process", "shared", "grouping", "adapter", "agent"]
+type EdgeKind = Literal["calls", "types", "enters", "dispatches", "answers"]
 # per-item: the call repeats once per item (a loop in `run` or inside the method that makes it).
 type Mark = Literal["per-item", "parallel", "lock"]
 # A step is a Pipe method or a direct `<alias>.run(...)`; every other kind frames steps, as the
@@ -176,6 +203,7 @@ class Node:
     # The apps of its catalogue, `<package>/apps/<name>/app.toml` (template-decisions A6):
     # data, so no node of their own; each binds a use case (`binding_problems`).
     apps: tuple[Declaration, ...] = ()
+    agent: AgentFacts | None = None  # an `agent` node's: what the model gets, and its limits
 
     @property
     def name(self) -> str:
@@ -196,6 +224,7 @@ class Edge:
     alert: str = ""
     # The index of the first step of `run` that makes the call: the order they run in.
     order: int = 10**6
+    works: tuple[str, ...] = ()  # a `dispatches` or `answers` edge: the work it carries
 
 
 @dataclass
@@ -812,6 +841,8 @@ def build_graph(root: Path = ROOT) -> tuple[Graph, list[str]]:
     adapter = root / ADAPTER_NAME
     if adapter.is_dir():
         add_adapter(adapter, nodes, edges)
+    if (root / HARNESS_NAME / AGENTS_FOLDER).is_dir():
+        problems.extend(add_agents(root, nodes, edges, functions))
     graph = Graph(nodes, edges)
     apply_steps(graph)
     aggregate(graph)
@@ -954,6 +985,119 @@ def add_adapter(adapter: Path, nodes: dict[str, Node], edges: list[Edge]) -> Non
                 and not any(edge.kind == "enters" for edge in edges)
             ):
                 edges.append(Edge(ADAPTER_NAME, LOGIC_NAME, "enters"))
+
+
+def add_agents(
+    root: Path,
+    nodes: dict[str, Node],
+    edges: list[Edge],
+    functions: dict[str, ast.FunctionDef | ast.AsyncFunctionDef],
+) -> list[str]:
+    """One `agent` node per agents/<name>/workspace, held to its capture, agent.yml and the
+    profile; the works of the port's AGENTS table become its `dispatches` and `answers`."""
+    problems: list[str] = []
+    harness = root / HARNESS_NAME
+    folder = harness / AGENTS_FOLDER
+    modules = table_modules(root / LOGIC_NAME)
+    table: dict[str, str] = {}
+    table_name = f"the {AGENTS_TABLE_NAME} table"
+    if len(modules) != 1:
+        found = [module.relative_to(root).as_posix() for module in modules]
+        problems.append(
+            f"{LOGIC_NAME}: one `{ADAPTER_PACKAGE}/contracts.py` (the agent-runs port's adapter) "
+            f"holds the {AGENTS_TABLE_NAME} table; found {found}"
+        )
+    else:
+        table_name = modules[0].relative_to(root).as_posix()
+        table, table_problems = agents_table(modules[0])
+        problems.extend(f"{table_name}: {problem}" for problem in table_problems)
+    profile, profile_problems = profile_of(harness)
+    problems.extend(profile_problems)
+    route: tuple[str, str, str] | None = None
+    if profile is not None:
+        patch = harness / Path(*PROFILES) / profile / PATCH_FILE
+        route = default_model(patch.read_text(encoding="utf-8"))
+        if route is None:
+            problems.append(
+                f"{patch.relative_to(root).as_posix()}: no `{MODEL_ENTRY}` entry with provider, "
+                "model and reasoningEffort"
+            )
+    names = sorted(path.name for path in folder.iterdir() if (path / "workspace").is_dir())
+    for work, name in table.items():
+        if name not in names:
+            problems.append(
+                f"{table_name}: work {work!r} goes to agent {name!r}, but "
+                f"{HARNESS_NAME}/{AGENTS_FOLDER}/{name}/workspace does not exist"
+            )
+    submits = [
+        (node_id, work)
+        for node_id, function in sorted(functions.items())
+        for work in work_calls(function, SUBMIT_METHOD)
+    ]
+    observes = [
+        (node_id, work)
+        for node_id, function in sorted(functions.items())
+        for work in work_calls(function, OBSERVE_METHOD)
+    ]
+    for node_id, work in [*submits, *observes]:
+        if work not in table:
+            problems.append(
+                f"{nodes[node_id].path}/run.py: names work {work!r}, which {AGENTS_TABLE_NAME} "
+                "sends to no agent"
+            )
+    submitted = {work for _, work in submits}
+    observed = {work for _, work in observes}
+    for work in table:
+        if work not in submitted:
+            problems.append(f"{table_name}: no run submits work {work!r}")
+        elif work not in observed:
+            problems.append(
+                f"{table_name}: work {work!r} is submitted, but no run observes it: its answer "
+                "would never be read"
+            )
+    if profile is None:
+        return problems
+    for name in names:
+        node_id = ".".join((HARNESS_NAME, AGENTS_FOLDER, name))
+        path = f"{HARNESS_NAME}/{AGENTS_FOLDER}/{name}"
+        facts, own = read_agent(folder / name, harness, profile, route, VALUES)
+        problems.extend(f"{path}: {problem}" for problem in own)
+        node = Node(node_id, "agent", path, agent=facts)
+        nodes[node_id] = node
+        if facts is None:
+            continue
+        # agent.yml's description says what the agent is; AGENTS.md's first paragraph only
+        # stands in while agent.yml is unreadable (a problem already).
+        node.doc = RunDoc(summary=facts.description or first_paragraph(facts.instructions))
+        effects = {"model", *(e.value for t in facts.tools if t.doc for e in t.doc.effects)}
+        node.effects = tuple(effect for effect in EFFECT_STRENGTH if effect in effects)
+        # Every run of an agent is another model run: the same request again costs again.
+        node.repeat = Repeat.ACCUMULATES.value
+        facts.works = tuple(sorted(work for work, agent in table.items() if agent == name))
+        sources: list[str] = []
+        for source, work in submits:
+            if work in facts.works:
+                edges.append(Edge(source, node_id, "dispatches", works=(work,)))
+                sources.append(f"{display(source)} (work {work})")
+        readers: list[str] = []
+        for reader, work in observes:
+            if work in facts.works and reader not in readers:
+                edges.append(Edge(node_id, reader, "answers", works=(work,)))
+                readers.append(reader)
+        facts.input = (
+            f"the submission of {', '.join(sources)}, as one JSON message"
+            if sources
+            else "no work goes to it: dispatched only by its name"
+        )
+        ends = [tool.name for tool in facts.tools if tool.doc is not None and tool.doc.ends_run]
+        said = (
+            f"what {' or '.join(ends)} accepts (its stdout); a successful call ends the run"
+            if ends
+            else "its final message"
+        )
+        read_by = f", read by {', '.join(display(reader) for reader in readers)}" if readers else ""
+        facts.output = said + read_by
+    return problems
 
 
 def aggregate(graph: Graph) -> None:
@@ -1157,6 +1301,51 @@ def step_lines(steps: list[Step]) -> list[str]:
     return lines
 
 
+def agents_of(graph: Graph) -> list[Node]:
+    return [node for node in graph.nodes.values() if node.kind == "agent"]
+
+
+def limits_text(limits: AgentLimits) -> str:
+    seconds = "no time limit" if limits.max_run_seconds is None else f"{limits.max_run_seconds} s"
+    tokens = "no token limit" if limits.max_tokens is None else f"{limits.max_tokens} tokens"
+    return f"{seconds}, {tokens} (in the run); {limits.max_attempts} attempts (the queue)"
+
+
+def tool_tags(tool: AgentTool) -> str:
+    """`shared, <plugin>` or `own, <plugin>[, ends the run]`."""
+    tags = ["shared" if tool.shared else "own", tool.plugin]
+    if tool.doc is not None and tool.doc.ends_run:
+        tags.append("ends the run")
+    return ", ".join(tags)
+
+
+def agent_lines(graph: Graph, node: Node) -> list[str]:
+    """The block of one agent, for the text view: what the model gets, and where it plugs in."""
+    facts = node.agent
+    if facts is None:
+        return ["unreadable: see the gates' problems"]
+    lines = [
+        f"model: {facts.provider}/{facts.model}, effort {facts.effort}  (as {facts.capture})",
+    ]
+    if facts.limits is not None:
+        lines.append(f"limits: {limits_text(facts.limits)}")
+    lines.append(f"input: {facts.input}")
+    lines.append(f"output: {facts.output}")
+    for tool in facts.tools:
+        summary = tool.description.split("\n", 1)[0]
+        lines.append(f"tool {tool.name}  ({tool_tags(tool)})  {summary}")
+        if tool.doc is not None:
+            effects = ", ".join(f"{item.value}: {item.note}" for item in tool.doc.effects)
+            lines.append(f"  effects {effects}")
+            lines.append(f"  repeat {tool.doc.repeat.value}: {tool.doc.repeat.note}")
+    for edge in graph.edges:
+        if edge.kind == "dispatches" and edge.target == node.id:
+            lines.append(f"dispatched by {display(edge.source)} (work {', '.join(edge.works)})")
+        elif edge.kind == "answers" and edge.source == node.id:
+            lines.append(f"answers {display(edge.target)} (work {', '.join(edge.works)})")
+    return lines
+
+
 def render_text(graph: Graph) -> str:
     """For agents: the use cases with the steps of each run, then the shared shelves."""
     lines: list[str] = []
@@ -1194,6 +1383,15 @@ def render_text(graph: Graph) -> str:
         )
         for child in children(graph, shelf.id):
             visit(child, 1, True)
+    if agents_of(graph):
+        lines.append("")
+        lines.append(
+            f"agents {HARNESS_NAME}/{AGENTS_FOLDER}/  (separate processes of the runtime layer; "
+            "the logic reaches them only through the agent-runs port's harness adapter)"
+        )
+        for agent in agents_of(graph):
+            lines.append(f"  {agent.name}  [{node_tags(agent)}]  {agent.doc.summary}")
+            lines.extend(f"    │ {line}" for line in agent_lines(graph, agent))
     if graph.alerts:
         lines.append("")
         lines.append("alerts:")
@@ -1208,6 +1406,46 @@ def step_json(step: Step) -> dict[str, object]:
         "calls": [{"target": call.target, "per_item": call.per_item} for call in step.calls],
         "ports": list(step.ports),
         "steps": [step_json(inner) for inner in step.steps],
+    }
+
+
+def agent_json(facts: AgentFacts) -> dict[str, object]:
+    limits = facts.limits
+    return {
+        "provider": facts.provider,
+        "model": facts.model,
+        "effort": facts.effort,
+        "capture": facts.capture,
+        "description": facts.description,
+        "instructions": facts.instructions,
+        "system": facts.system,
+        "works": list(facts.works),
+        "input": facts.input,
+        "output": facts.output,
+        "limits": None
+        if limits is None
+        else {
+            "max_run_seconds": limits.max_run_seconds,
+            "max_tokens": limits.max_tokens,
+            "max_attempts": limits.max_attempts,
+        },
+        "tools": [
+            {
+                "name": tool.name,
+                "description": tool.description,
+                "parameters": tool.parameters,
+                "plugin": tool.plugin,
+                "shared": tool.shared,
+                "effects": None
+                if tool.doc is None
+                else [{"value": item.value, "note": item.note} for item in tool.doc.effects],
+                "repeat": None
+                if tool.doc is None
+                else {"value": tool.doc.repeat.value, "note": tool.doc.repeat.note},
+                "ends_run": tool.doc is not None and tool.doc.ends_run,
+            }
+            for tool in facts.tools
+        ],
     }
 
 
@@ -1239,6 +1477,7 @@ def node_json(node: Node) -> dict[str, object]:
             }
             for app in node.apps
         ],
+        "agent": None if node.agent is None else agent_json(node.agent),
     }
 
 
@@ -1252,6 +1491,7 @@ def render_json(graph: Graph) -> str:
                 "kind": edge.kind,
                 "marks": list(edge.marks),
                 "cases": list(edge.cases),
+                "works": list(edge.works),
                 "alert": edge.alert,
             }
             for edge in graph.edges
@@ -1278,6 +1518,8 @@ KIND_WORDS: dict[NodeKind, str] = {
     "shared": "shelf: packages used by two or more children of the parent",
     "grouping": "grouping: the contracts its operations exchange; no run",
     "adapter": "HTTP adapter: enters only through backend_logic/run.py",
+    "agent": "agent: a separate model run of the runtime layer, with these instructions and "
+    "tools; the logic reaches it only through the agent-runs port's harness adapter",
 }
 
 
@@ -1360,6 +1602,47 @@ def steps_html(steps: list[Step]) -> str:
     return "".join(items)
 
 
+def agent_html(graph: Graph, node: Node) -> str:
+    """The agent's block: model, limits, input, output, instructions and every tool, as
+    captured (the capture is the one copy of what the model gets)."""
+    facts = node.agent
+    if facts is None:
+        return '<p class="alert">unreadable: see the problems of the gates</p>'
+    parts = [
+        f"<p>model <code>{esc(facts.provider)}/{esc(facts.model)}</code> effort "
+        f"<code>{esc(facts.effort)}</code> · as captured in <code>{esc(facts.capture)}</code></p>",
+    ]
+    if facts.limits is not None:
+        parts.append(f"<p>limits: {esc(limits_text(facts.limits))}</p>")
+    parts.append(f"<p>input: {esc(facts.input)}</p><p>output: {esc(facts.output)}</p>")
+    dispatchers = [
+        edge for edge in graph.edges if edge.kind == "dispatches" and edge.target == node.id
+    ]
+    if dispatchers:
+        rows = "".join(
+            f"<li>{go(edge.source, display(edge.source))} "
+            f'<span class="ports">work {esc(", ".join(edge.works))}</span></li>'
+            for edge in dispatchers
+        )
+        parts.append(f"<h3>Dispatched by</h3><ul>{rows}</ul>")
+    parts.append(f'<h3>Instructions (AGENTS.md)</h3><pre class="d">{esc(facts.instructions)}</pre>')
+    for tool in facts.tools:
+        notes = ""
+        if tool.doc is not None:
+            effects = "".join(
+                f"<dd><b>{esc(item.value)}</b>: {esc(item.note)}</dd>" for item in tool.doc.effects
+            )
+            repeat = f"<dd><b>{esc(tool.doc.repeat.value)}</b>: {esc(tool.doc.repeat.note)}</dd>"
+            notes = f"<dl><dt>Effects</dt>{effects}<dt>Repeat</dt>{repeat}</dl>"
+        parts.append(
+            f"<h3>Tool <code>{esc(tool.name)}</code> "
+            f'<span class="ports">{esc(tool_tags(tool))}</span></h3>'
+            f'<p class="d">{esc(tool.description)}</p>'
+            f"<p><code>{esc(tool.parameters)}</code></p>{notes}"
+        )
+    return "".join(parts)
+
+
 def panel(
     graph: Graph,
     node: Node,
@@ -1379,6 +1662,8 @@ def panel(
         parts.append(f"<p><code>{esc(node.request)} → {esc(node.response)}</code></p>")
     if node.ports:
         parts.append(f"<p>ports: <code>{esc(', '.join(node.ports))}</code></p>")
+    if node.kind == "agent":
+        parts.append(agent_html(graph, node))
     if node.steps:
         parts.append("<h3>Steps of run, in order</h3>")
         parts.append(f'<ol class="steps">{steps_html(node.steps)}</ol>')
@@ -1396,7 +1681,13 @@ def panel(
         parts.append("</dl>")
     outgoing = sorted((edge for edge in graph.edges if edge.source == node.id), key=edge_order)
     if outgoing:
-        verbs = {"calls": "calls", "types": "uses the types of", "enters": "enters"}
+        verbs = {
+            "calls": "calls",
+            "types": "uses the types of",
+            "enters": "enters",
+            "dispatches": "dispatches to",
+            "answers": "answers",
+        }
         rows = "".join(
             f'<li class="edge {edge.kind}" data-source="{esc(edge.source)}" '
             f'data-target="{esc(edge.target)}">{verbs[edge.kind]} '
@@ -1404,6 +1695,11 @@ def panel(
             + (
                 f' <span class="ports">case {esc(", ".join(edge.cases))}</span>'
                 if edge.cases
+                else ""
+            )
+            + (
+                f' <span class="ports">work {esc(", ".join(edge.works))}</span>'
+                if edge.works
                 else ""
             )
             + (f'<div class="alert">{esc(edge.alert)}</div>' if edge.alert else "")
@@ -1463,6 +1759,23 @@ def graph_layout(
         # A folder's depth is its number of parts: backend_logic is 1, backend_logic/x is 2.
         place(shelf, len(shelf.id.split(".")), True)
         bands.append((shelf.path, first, row[0] - 1, positions[shelf.id][0]))
+    agents = agents_of(graph)
+    if agents:
+        # A band of their own, last: one column right of the deepest run that dispatches.
+        row[0] += 0.7
+        first = row[0]
+        column = 1 + max(
+            (
+                positions[edge.source][0]
+                for edge in graph.edges
+                if edge.kind == "dispatches" and edge.source in positions
+            ),
+            default=1,
+        )
+        for agent in agents:
+            positions[agent.id] = (column, row[0])
+            row[0] += 1
+        bands.append((f"{HARNESS_NAME}/{AGENTS_FOLDER}", first, row[0] - 1, column))
     return positions, bands
 
 
@@ -1525,6 +1838,9 @@ def render_html(graph: Graph) -> str:
         nested = f"<ul>{inner}</ul>" if inner else ""
         return f"<li>{card(graph, node, used_by, cases.get(node.id, ()))}{nested}</li>"
 
+    agents = "".join(
+        f'<div class="shelf">{card(graph, agent, used_by, ())}</div>' for agent in agents_of(graph)
+    )
     root = branch(graph.nodes[LOGIC_NAME], False)
     if ADAPTER_NAME in graph.nodes:
         adapter = card(graph, graph.nodes[ADAPTER_NAME], used_by, ())
@@ -1547,6 +1863,7 @@ def render_html(graph: Graph) -> str:
         ("processes", sum(1 for node in graph.nodes.values() if node.kind == "process")),
         ("shelves", len(top_shelves(graph))),
         ("calls", sum(1 for edge in graph.edges if edge.kind == "calls")),
+        ("agents", len(agents_of(graph))),
         ("alerts", len(graph.alerts)),
     ]
     stats = "".join(
@@ -1558,6 +1875,16 @@ def render_html(graph: Graph) -> str:
     return PAGE.substitute(
         tree=f'<ul class="tree">{root}</ul>',
         shelves=shelves,
+        agents=(
+            '<h2 class="part" style="margin-top:22px">Agents</h2>'
+            '<p class="how">Separate model runs of the runtime layer (backend_harness/). A run '
+            "hands a work over through the agent-runs port, whose harness adapter names the "
+            "agent (the AGENTS table); the agent's output is read back, and admitted, by the "
+            "runs that observe that work. What the model gets is the accepted capture.</p>"
+            f'<div class="shelves">{agents}</div>'
+            if agents
+            else ""
+        ),
         panels="".join(panel(graph, node, used_by, bindings) for node in graph.nodes.values()),
         legend=legend,
         stats=stats,
@@ -1643,6 +1970,7 @@ p.how{color:var(--mu);margin:0 0 12px;max-width:80ch}
 .node:focus-visible{outline:2px solid var(--a2);outline-offset:2px}
 .node.family{box-shadow:inset 0 0 0 1px #ffffff1a}
 .node.adapter{background:linear-gradient(90deg,#2b1c5c,#0e3542);border-left-color:var(--a2)}
+.node.agent{background:linear-gradient(90deg,#24174a,#151d2c);box-shadow:inset 0 0 0 1px #b48cff40}
 .node.skeleton{border-style:dashed}
 .node.shared,.node.grouping{background:#ffffff05;border-style:dashed;border-left-color:#ffffff30}
 .node .h b{font-size:13.5px} .node .t{color:var(--mu);font-size:11px;margin-left:8px}
@@ -1675,6 +2003,7 @@ path.tree{fill:none;stroke:#ffffff14;stroke-width:1.2}
 path.e{fill:none;stroke-width:1.4;opacity:.55;transition:opacity .25s,stroke-width .25s;
  animation:fade .8s both;animation-delay:calc(300ms + var(--i,0) * 12ms)}
 path.e.calls{stroke:#7c8cff} path.e.enters{stroke:#e7ecf6}
+path.e.dispatches{stroke:#b48cff;stroke-dasharray:8 4} path.e.answers{stroke:#6fdc8c}
 path.e.types{stroke:#5d6b85;stroke-dasharray:3 4} path.e.alert{stroke:var(--bad)}
 .elabel{fill:#ffc078;font-size:10px;paint-order:stroke;stroke:#0a0f18;stroke-width:3px;
  transition:opacity .25s}
@@ -1684,6 +2013,7 @@ path.e.types{stroke:#5d6b85;stroke-dasharray:3 4} path.e.alert{stroke:var(--bad)
 .gnode rect.b{fill:#131b2a;stroke:#2a3853;transition:stroke .2s}
 .gnode.family rect.b{stroke:#56658a;stroke-width:1.5}
 .gnode.adapter rect.b{fill:#1f1946;stroke:var(--a2)}
+.gnode.agent rect.b{fill:#1d1533;stroke:#b48cff}
 .gnode.shared rect.b,.gnode.grouping rect.b{fill:#0d131d;stroke-dasharray:4 3}
 .gnode text{fill:var(--tx);font-size:12.5px;font-weight:600}
 .gnode text.t{fill:var(--mu);font-size:10px;font-weight:400}
@@ -1767,6 +2097,7 @@ $tree
 <p class="how">What two or more neighbours share lives on the shelf of their nearest common
 parent, apart from the use cases: the chips above say who takes what.</p>
 <div class="shelves">$shelves</div>
+$agents
 </section>
 <section id="view-graph" role="tabpanel" aria-label="Graph" hidden>
 <div id="stage"><svg id="graph" aria-label="Package graph">
@@ -1777,6 +2108,10 @@ parent, apart from the use cases: the chips above say who takes what.</p>
  orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#e7ecf6"/></marker>
 <marker id="m-types" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6"
  orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#5d6b85"/></marker>
+<marker id="m-dispatches" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7"
+ orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#b48cff"/></marker>
+<marker id="m-answers" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7"
+ orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#6fdc8c"/></marker>
 </defs><g id="world"></g></svg>
 <div class="tools"><button type="button" data-zoom="1.25" aria-label="Zoom in">+</button>
 <button type="button" data-zoom="0.8" aria-label="Zoom out">−</button>

@@ -2,9 +2,11 @@
  * agents/<name>/agent.yml: the one file that declares an agent to the harness.
  * It sits outside workspace/, so the model never sees it. app-agent (through
  * cli.js), the profile generator (runtime/bin/app-profiles.mjs) and context.mjs
- * read it here, so it is parsed and checked in exactly one place on this side;
- * the logic side's Python gates (a later addition of the template) read it
- * with their own parser.
+ * read it here, so it is parsed and checked in exactly one place on this side.
+ * The template's Python gates read it with two readers of their own (the
+ * architecture graph's, tests/support/harness_agents.py, and PyYAML in
+ * tests/gates/test_agent_yml.py); all three are held to the verdicts of
+ * backend_harness/tests/agent_yml_cases.json (this one by tools.test.mjs).
  *
  *   description: one or two sentences: what the agent does      (required)
  *   limits:                                                      (required, all three)
@@ -27,8 +29,9 @@
  * the build's agents.json (app-profiles.mjs --agents-json). The Effects and
  * Repeat values are a closed vocabulary whose one definition is the logic
  * side's (tests/support/architecture.py, the E1 enums): here only the shape
- * is checked, the values by the logic side's gates. Whether a successful call
- * ends the run is not declared here: the own plugin says it in its
+ * is checked, the values by the template's gates on every real file.
+ * Whether a successful call ends the run is not declared here: the own
+ * plugin says it in its
  * package.json (`harness.ends_run`).
  * Without `model` the agent runs on the app profile's agent-default-model; with
  * it, app-profiles.mjs writes these two values into that entry of the agent's

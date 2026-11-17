@@ -149,3 +149,16 @@ test('the CLI prints APP_TOOLS, nothing without shared tools, and exits 2 on a b
     await rm(dir, { recursive: true, force: true })
   }
 })
+// The cases every reader of agent.yml is held to (tests/agent_yml_cases.json): this one, the
+// image's, gives the verdict the case pins for agent_js (by default, the Python gate's).
+// tests/gates/test_agent_yml.py holds the two Python readers to the same file.
+test('agent.yml: agent.js gives every shared case the verdict it pins', async () => {
+  const file = new URL('../../../../agent_yml_cases.json', import.meta.url)
+  const { cases } = JSON.parse(await readFile(file, 'utf8'))
+  assert.ok(cases.length > 0)
+  for (const { id, text, problems, agent_js: pinned } of cases) {
+    const expected = pinned ?? (problems.length ? 'refuses' : 'accepts')
+    const { error } = parseAgent(text)
+    assert.equal(error === undefined ? 'accepts' : 'refuses', expected, `${id}: ${error ?? 'accepted'}`)
+  }
+})

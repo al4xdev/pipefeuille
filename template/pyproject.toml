@@ -17,6 +17,9 @@ dev = [
     "mypy>=1.15.0",
     "pytest>=8.0.0",
     "pytest-asyncio>=0.25.0",
+    # The third reader of backend_harness/agents/*/agent.yml (tests/gates/test_agent_yml.py),
+    # typed by tests/support/yaml.pyi.
+    "pyyaml>=6.0",
 ]
 
 [tool.uv]

@@ -60,7 +60,7 @@ The structure belongs to the **frontier model** (the orchestrator); **intermedia
 | `pipeline.py`: body of the delegated method | delivers as `raise NotImplementedError("package.method")` | **fills in only this body** |
 | Method tests and fixtures | writes (or approves) | runs; does not change them to make them pass |
 | Gates (`pyproject.toml`) | tightens; loosens only with an owner-approved deviation | runs; never relaxes |
-| `tests/gates/`, `tests/support/deviations.py`, `tests/support/architecture.py`, `tests/support/boundaries.py`, `tests/support/declarations.py`, `tests/support/tomllib.pyi` | never edits | never edits |
+| `tests/gates/`, `tests/support/deviations.py`, `tests/support/architecture.py`, `tests/support/boundaries.py`, `tests/support/declarations.py`, `tests/support/harness_agents.py`, `tests/support/tomllib.pyi`, `tests/support/yaml.pyi` | never edits | never edits |
 | `docs/design/architecture-log.md` | writes entries; a deviation only as `Status: proposed`, `approved` only with the owner's words or under the owner's written delegation with a critic (Deviations, item 4) | does not touch |
 
 Wrong or incomplete contract (missing field, type too wide, undeclared error): the implementer **stops and reports** to the frontier model. Never works around it with `cast`, `# type: ignore`, a new field or an extra import.
@@ -78,7 +78,7 @@ Never relax a gate to get green. Green gates do not prove a finished product: re
 
 The ruff (lint and format), mypy and pytest configuration lives in `pyproject.toml` and **is part of the template**: a new project is born with it ready. Do not create parallel `ruff.toml`, `mypy.ini` or `setup.cfg`, do not pass flags that work around it, and do not loosen it: tightening is free, loosening is a deviation.
 
-`tests/gates/`, `tests/support/deviations.py`, `tests/support/architecture.py`, `tests/support/boundaries.py`, `tests/support/declarations.py` and `tests/support/tomllib.pyi` are copied from the template and **never edited** in the project, not even to add an exception or an enum value: the gates read the exceptions from `architecture-log.md`. Nothing may stop a gate from running either: no `exclude` of code in ruff or mypy, no `--ignore`/`--deselect`/`-k` in pytest options, no collection hook in a `conftest.py` (all gated). A gate that is wrong is a report to the owner, not a local fix.
+`tests/gates/`, `tests/support/deviations.py`, `tests/support/architecture.py`, `tests/support/boundaries.py`, `tests/support/declarations.py`, `tests/support/harness_agents.py`, `tests/support/tomllib.pyi` and `tests/support/yaml.pyi` are copied from the template and **never edited** in the project, not even to add an exception or an enum value: the gates read the exceptions from `architecture-log.md`. Nothing may stop a gate from running either: no `exclude` of code in ruff or mypy, no `--ignore`/`--deselect`/`-k` in pytest options, no collection hook in a `conftest.py` (all gated). A gate that is wrong is a report to the owner, not a local fix.
 
 ## Deviations (owner decision)
 

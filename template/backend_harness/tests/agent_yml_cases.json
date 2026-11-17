@@ -1,0 +1,369 @@
+{
+  "about": [
+    "Every good and bad agent.yml case, and the verdict of each of its three readers:",
+    "PyYAML with the schema (tests/gates/test_agent_yml.py; `problems` are fragments of its problems, [] = accepted),",
+    "the stdlib reader of the graph (tests/support/harness_agents.py; the same verdict unless `subset` says otherwise),",
+    "js-yaml with agent.js, the reader of the image build (tests/agents/_shared/plugins/dsh-plugin-app-tools/tools.test.mjs;",
+    "the same verdict unless `agent_js` says otherwise). Every exception says why. A real agent.yml must pass all three."
+  ],
+  "cases": [
+    {
+      "id": "minimal",
+      "text": "description: An agent.\nlimits:\n  max_run_seconds: null\n  max_tokens: null\n  max_attempts: 3\n",
+      "problems": []
+    },
+    {
+      "id": "shared-tools",
+      "text": "description: An agent.\nlimits:\n  max_run_seconds: null\n  max_tokens: null\n  max_attempts: 3\ntools:\n  shared: [read, edit, sql]\n",
+      "problems": []
+    },
+    {
+      "id": "own-pure",
+      "text": "description: An agent.\nlimits:\n  max_run_seconds: null\n  max_tokens: null\n  max_attempts: 3\ntools:\n  own:\n    t:\n      effects: {pure: p}\n      repeat: {safe: s}\n",
+      "problems": []
+    },
+    {
+      "id": "own-two-effects",
+      "text": "description: An agent.\nlimits:\n  max_run_seconds: null\n  max_tokens: null\n  max_attempts: 3\ntools:\n  own:\n    t:\n      effects: {reads: a, writes: b}\n      repeat: {fails: c}\n",
+      "problems": []
+    },
+    {
+      "id": "own-block-notes",
+      "text": "description: An agent.\nlimits:\n  max_run_seconds: null\n  max_tokens: null\n  max_attempts: 3\ntools:\n  own:\n    t:\n      effects:\n        writes: 'a note: quoted'\n      repeat:\n        fails: f # a comment\n",
+      "problems": []
+    },
+    {
+      "id": "model",
+      "text": "description: An agent.\nlimits:\n  max_run_seconds: null\n  max_tokens: null\n  max_attempts: 3\nmodel:\n  name: deepseek-flash\n  reasoning: low\n",
+      "problems": []
+    },
+    {
+      "id": "model-reasoning-off",
+      "text": "description: An agent.\nlimits:\n  max_run_seconds: null\n  max_tokens: null\n  max_attempts: 3\nmodel:\n  name: deepseek-flash\n  reasoning: off\n",
+      "problems": []
+    },
+    {
+      "id": "null-tilde",
+      "text": "description: An agent.\nlimits:\n  max_run_seconds: null\n  max_tokens: ~\n  max_attempts: 3\n",
+      "problems": []
+    },
+    {
+      "id": "integers",
+      "text": "description: An agent.\nlimits:\n  max_run_seconds: 120\n  max_tokens: 50000\n  max_attempts: 3\n",
+      "problems": []
+    },
+    {
+      "id": "quoted-description",
+      "text": "description: 'An agent: it reads. It writes.'\nlimits:\n  max_run_seconds: null\n  max_tokens: null\n  max_attempts: 3\n",
+      "problems": []
+    },
+    {
+      "id": "no-max-attempts",
+      "text": "description: An agent.\nlimits:\n  max_run_seconds: null\n  max_tokens: null\n",
+      "problems": [
+        "limits.max_attempts"
+      ]
+    },
+    {
+      "id": "max-attempts-bool",
+      "text": "description: An agent.\nlimits:\n  max_run_seconds: null\n  max_tokens: null\n  max_attempts: true\n",
+      "problems": [
+        "limits.max_attempts"
+      ]
+    },
+    {
+      "id": "max-attempts-zero",
+      "text": "description: An agent.\nlimits:\n  max_run_seconds: null\n  max_tokens: null\n  max_attempts: 0\n",
+      "problems": [
+        "limits.max_attempts"
+      ]
+    },
+    {
+      "id": "max-attempts-quoted",
+      "text": "description: An agent.\nlimits:\n  max_run_seconds: null\n  max_tokens: null\n  max_attempts: '3'\n",
+      "problems": [
+        "limits.max_attempts"
+      ]
+    },
+    {
+      "id": "max-tokens-fraction",
+      "text": "description: An agent.\nlimits:\n  max_run_seconds: null\n  max_tokens: 2.5\n  max_attempts: 3\n",
+      "problems": [
+        "limits.max_tokens"
+      ]
+    },
+    {
+      "id": "max-tokens-underscore",
+      "text": "description: An agent.\nlimits:\n  max_run_seconds: null\n  max_tokens: 1_000\n  max_attempts: 3\n",
+      "problems": [
+        "limits.max_tokens"
+      ]
+    },
+    {
+      "id": "max-tokens-float-whole",
+      "text": "description: An agent.\nlimits:\n  max_run_seconds: null\n  max_tokens: 5.0\n  max_attempts: 3\n",
+      "problems": [
+        "limits.max_tokens"
+      ],
+      "agent_js": "accepts",
+      "why": "js-yaml's core schema reads it as an integer; the Python readers take a limit only as plain decimal digits, and refuse it on every real file"
+    },
+    {
+      "id": "max-tokens-hex",
+      "text": "description: An agent.\nlimits:\n  max_run_seconds: null\n  max_tokens: 0x10\n  max_attempts: 3\n",
+      "problems": [
+        "limits.max_tokens"
+      ],
+      "agent_js": "accepts",
+      "why": "js-yaml's core schema reads it as an integer; the Python readers take a limit only as plain decimal digits, and refuse it on every real file"
+    },
+    {
+      "id": "max-tokens-leading-zero",
+      "text": "description: An agent.\nlimits:\n  max_run_seconds: null\n  max_tokens: 010\n  max_attempts: 3\n",
+      "problems": [
+        "limits.max_tokens"
+      ],
+      "agent_js": "accepts",
+      "why": "js-yaml's core schema reads it as an integer; the Python readers take a limit only as plain decimal digits, and refuse it on every real file"
+    },
+    {
+      "id": "limits-unknown-key",
+      "text": "description: An agent.\nlimits:\n  max_run_seconds: null\n  max_tokens: null\n  max_attempts: 3\n  retries: 2\n",
+      "problems": [
+        "unknown key 'retries'"
+      ]
+    },
+    {
+      "id": "top-unknown-key",
+      "text": "description: An agent.\nlimits:\n  max_run_seconds: null\n  max_tokens: null\n  max_attempts: 3\nqueue: fast\n",
+      "problems": [
+        "unknown key 'queue'"
+      ]
+    },
+    {
+      "id": "model-no-reasoning",
+      "text": "description: An agent.\nlimits:\n  max_run_seconds: null\n  max_tokens: null\n  max_attempts: 3\nmodel:\n  name: deepseek-flash\n",
+      "problems": [
+        "model.reasoning"
+      ]
+    },
+    {
+      "id": "model-reasoning-medium",
+      "text": "description: An agent.\nlimits:\n  max_run_seconds: null\n  max_tokens: null\n  max_attempts: 3\nmodel:\n  name: deepseek-flash\n  reasoning: medium\n",
+      "problems": [
+        "model.reasoning"
+      ]
+    },
+    {
+      "id": "model-name-spaces",
+      "text": "description: An agent.\nlimits:\n  max_run_seconds: null\n  max_tokens: null\n  max_attempts: 3\nmodel:\n  name: Big Model 3\n  reasoning: low\n",
+      "problems": [
+        "model.name"
+      ]
+    },
+    {
+      "id": "model-provider",
+      "text": "description: An agent.\nlimits:\n  max_run_seconds: null\n  max_tokens: null\n  max_attempts: 3\nmodel:\n  name: m1\n  reasoning: low\n  provider: x\n",
+      "problems": [
+        "unknown key 'provider'"
+      ]
+    },
+    {
+      "id": "model-scalar",
+      "text": "description: An agent.\nlimits:\n  max_run_seconds: null\n  max_tokens: null\n  max_attempts: 3\nmodel: deepseek-flash\n",
+      "problems": [
+        "model: a mapping"
+      ]
+    },
+    {
+      "id": "description-three-sentences",
+      "text": "description: One. Two. Three.\nlimits:\n  max_run_seconds: null\n  max_tokens: null\n  max_attempts: 3\n",
+      "problems": [
+        "one or two sentences"
+      ]
+    },
+    {
+      "id": "description-no-end",
+      "text": "description: An agent\nlimits:\n  max_run_seconds: null\n  max_tokens: null\n  max_attempts: 3\n",
+      "problems": [
+        "one or two sentences"
+      ]
+    },
+    {
+      "id": "description-missing",
+      "text": "limits:\n  max_run_seconds: null\n  max_tokens: null\n  max_attempts: 3\n",
+      "problems": [
+        "description"
+      ]
+    },
+    {
+      "id": "tools-empty",
+      "text": "description: An agent.\nlimits:\n  max_run_seconds: null\n  max_tokens: null\n  max_attempts: 3\ntools: {}\n",
+      "problems": [
+        "tools: a mapping"
+      ]
+    },
+    {
+      "id": "shared-unknown",
+      "text": "description: An agent.\nlimits:\n  max_run_seconds: null\n  max_tokens: null\n  max_attempts: 3\ntools:\n  shared: [raed]\n",
+      "problems": [
+        "unknown tool 'raed'"
+      ]
+    },
+    {
+      "id": "shared-needs-read",
+      "text": "description: An agent.\nlimits:\n  max_run_seconds: null\n  max_tokens: null\n  max_attempts: 3\ntools:\n  shared: [apply_patch]\n",
+      "problems": [
+        "apply_patch needs read"
+      ]
+    },
+    {
+      "id": "shared-twice",
+      "text": "description: An agent.\nlimits:\n  max_run_seconds: null\n  max_tokens: null\n  max_attempts: 3\ntools:\n  shared: [read, read]\n",
+      "problems": [
+        "listed twice"
+      ]
+    },
+    {
+      "id": "own-effects-empty",
+      "text": "description: An agent.\nlimits:\n  max_run_seconds: null\n  max_tokens: null\n  max_attempts: 3\ntools:\n  own:\n    t:\n      effects: {}\n      repeat: {safe: s}\n",
+      "problems": [
+        "effects: a mapping"
+      ]
+    },
+    {
+      "id": "own-effects-scalar",
+      "text": "description: An agent.\nlimits:\n  max_run_seconds: null\n  max_tokens: null\n  max_attempts: 3\ntools:\n  own:\n    t:\n      effects: writes\n      repeat: {safe: s}\n",
+      "problems": [
+        "effects: a mapping"
+      ]
+    },
+    {
+      "id": "own-effect-unknown",
+      "text": "description: An agent.\nlimits:\n  max_run_seconds: null\n  max_tokens: null\n  max_attempts: 3\ntools:\n  own:\n    t:\n      effects: {mostly pure: m}\n      repeat: {safe: s}\n",
+      "problems": [
+        "'mostly pure' is not one of"
+      ],
+      "agent_js": "accepts",
+      "why": "the E1 vocabulary (values, `pure` alone, pure implies safe) is the logic side's: agent.js checks the shape only, the Python gates every real file"
+    },
+    {
+      "id": "own-pure-not-alone",
+      "text": "description: An agent.\nlimits:\n  max_run_seconds: null\n  max_tokens: null\n  max_attempts: 3\ntools:\n  own:\n    t:\n      effects: {pure: p, reads: r}\n      repeat: {safe: s}\n",
+      "problems": [
+        "pure only alone"
+      ],
+      "agent_js": "accepts",
+      "why": "the E1 vocabulary (values, `pure` alone, pure implies safe) is the logic side's: agent.js checks the shape only, the Python gates every real file"
+    },
+    {
+      "id": "own-pure-not-safe",
+      "text": "description: An agent.\nlimits:\n  max_run_seconds: null\n  max_tokens: null\n  max_attempts: 3\ntools:\n  own:\n    t:\n      effects: {pure: p}\n      repeat: {fails: f}\n",
+      "problems": [
+        "pure implies repeat: safe"
+      ],
+      "agent_js": "accepts",
+      "why": "the E1 vocabulary (values, `pure` alone, pure implies safe) is the logic side's: agent.js checks the shape only, the Python gates every real file"
+    },
+    {
+      "id": "own-repeat-two",
+      "text": "description: An agent.\nlimits:\n  max_run_seconds: null\n  max_tokens: null\n  max_attempts: 3\ntools:\n  own:\n    t:\n      effects: {model: m}\n      repeat: {safe: s, fails: f}\n",
+      "problems": [
+        "exactly one"
+      ]
+    },
+    {
+      "id": "own-repeat-unknown",
+      "text": "description: An agent.\nlimits:\n  max_run_seconds: null\n  max_tokens: null\n  max_attempts: 3\ntools:\n  own:\n    t:\n      effects: {model: m}\n      repeat: {retries: r}\n",
+      "problems": [
+        "'retries' is not one of"
+      ],
+      "agent_js": "accepts",
+      "why": "the E1 vocabulary (values, `pure` alone, pure implies safe) is the logic side's: agent.js checks the shape only, the Python gates every real file"
+    },
+    {
+      "id": "own-note-empty",
+      "text": "description: An agent.\nlimits:\n  max_run_seconds: null\n  max_tokens: null\n  max_attempts: 3\ntools:\n  own:\n    t:\n      effects: {model: ''}\n      repeat: {safe: s}\n",
+      "problems": [
+        "the note is a non-empty text"
+      ]
+    },
+    {
+      "id": "own-ends-run-key",
+      "text": "description: An agent.\nlimits:\n  max_run_seconds: null\n  max_tokens: null\n  max_attempts: 3\ntools:\n  own:\n    t:\n      effects: {model: m}\n      repeat: {safe: s}\n      ends_run: true\n",
+      "problems": [
+        "unknown key 'ends_run'"
+      ]
+    },
+    {
+      "id": "own-tool-name",
+      "text": "description: An agent.\nlimits:\n  max_run_seconds: null\n  max_tokens: null\n  max_attempts: 3\ntools:\n  own:\n    Bad-Tool:\n      effects: {model: m}\n      repeat: {safe: s}\n",
+      "problems": [
+        "a tool name is"
+      ]
+    },
+    {
+      "id": "anchor",
+      "text": "description: &d An agent.\nlimits:\n  max_run_seconds: null\n  max_tokens: null\n  max_attempts: 3\n",
+      "problems": [],
+      "subset": "refuses",
+      "why": "the stdlib reader reads a subset of YAML and refuses the rest rather than guess; the Python gates refuse it on every real file"
+    },
+    {
+      "id": "block-scalar",
+      "text": "description: >\n  An agent.\nlimits:\n  max_run_seconds: null\n  max_tokens: null\n  max_attempts: 3\n",
+      "problems": [],
+      "subset": "refuses",
+      "why": "the stdlib reader reads a subset of YAML and refuses the rest rather than guess; the Python gates refuse it on every real file"
+    },
+    {
+      "id": "duplicate-top-level",
+      "text": "description: An agent.\nlimits:\n  max_run_seconds: null\n  max_tokens: null\n  max_attempts: 3\ndescription: Again.\n",
+      "problems": [
+        "duplicate key"
+      ]
+    },
+    {
+      "id": "duplicate-in-limits",
+      "text": "description: An agent.\nlimits:\n  max_run_seconds: null\n  max_tokens: null\n  max_attempts: 3\n  max_attempts: 2\n",
+      "problems": [
+        "duplicate key"
+      ]
+    },
+    {
+      "id": "duplicate-in-tools",
+      "text": "description: An agent.\nlimits:\n  max_run_seconds: null\n  max_tokens: null\n  max_attempts: 3\ntools:\n  shared: [read]\n  shared: [sql]\n",
+      "problems": [
+        "duplicate key"
+      ]
+    },
+    {
+      "id": "duplicate-effects",
+      "text": "description: An agent.\nlimits:\n  max_run_seconds: null\n  max_tokens: null\n  max_attempts: 3\ntools:\n  own:\n    t:\n      effects: {x: y}\n      effects: {writes: a}\n      repeat: {fails: f}\n",
+      "problems": [
+        "duplicate key"
+      ]
+    },
+    {
+      "id": "duplicate-in-effects",
+      "text": "description: An agent.\nlimits:\n  max_run_seconds: null\n  max_tokens: null\n  max_attempts: 3\ntools:\n  own:\n    t:\n      effects:\n        writes: a\n        writes: b\n      repeat: {fails: f}\n",
+      "problems": [
+        "duplicate key"
+      ]
+    },
+    {
+      "id": "duplicate-repeat",
+      "text": "description: An agent.\nlimits:\n  max_run_seconds: null\n  max_tokens: null\n  max_attempts: 3\ntools:\n  own:\n    t:\n      effects: {model: a}\n      repeat: {fails: a}\n      repeat: {safe: b}\n",
+      "problems": [
+        "duplicate key"
+      ]
+    },
+    {
+      "id": "duplicate-in-flow-mapping",
+      "text": "description: An agent.\nlimits:\n  max_run_seconds: null\n  max_tokens: null\n  max_attempts: 3\ntools:\n  own:\n    t:\n      effects: {model: a, model: b}\n      repeat: {safe: s}\n",
+      "problems": [
+        "duplicate key"
+      ]
+    }
+  ]
+}

@@ -22,10 +22,13 @@ set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 HARNESS="$(cd "$HERE/.." && pwd)"
 IMAGE="${IMAGE:-app-harness:local}"
-TEST_IMAGE=app-harness:e2e
-NAME=app-harness-e2e
-PG_NAME=app-harness-e2e-pg
-NETWORK=app-harness-e2e
+# Named after IMAGE's tag, so two checkouts testing their own images never share a
+# derived image, a container or a network.
+TAG="$(printf '%s' "${IMAGE##*:}" | tr -c 'A-Za-z0-9_.-' '-')"
+TEST_IMAGE="app-harness:e2e-$TAG"
+NAME="app-harness-e2e-$TAG"
+PG_NAME="app-harness-e2e-pg-$TAG"
+NETWORK="app-harness-e2e-$TAG"
 
 build=0 pg=0
 for arg in "$@"; do
