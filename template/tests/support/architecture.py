@@ -827,19 +827,25 @@ def use_case_id(use_case: str) -> str:
 
 
 def is_use_case(graph: Graph, node_id: str) -> bool:
-    """A package a family dispatches by `case`, outside every `_shared/`."""
+    """A process a family dispatches by `case`, outside every `_shared/`. A family is never a
+    use case: it is a door to several, and binding it would bind every case at once."""
     node = graph.nodes[node_id]
-    return not is_shelved(node_id) and any(
-        edge.source == node.parent and edge.target == node_id and edge.cases
-        for edge in graph.edges
-        if edge.kind == "calls" and graph.nodes[edge.source].kind == "family"
+    return (
+        node.kind == "process"
+        and not is_shelved(node_id)
+        and any(
+            edge.source == node.parent and edge.target == node_id and edge.cases
+            for edge in graph.edges
+            if edge.kind == "calls" and graph.nodes[edge.source].kind == "family"
+        )
     )
 
 
 def reaches(graph: Graph, source: str, target: str) -> bool:
-    """Whether source calls target, directly or through the packages it calls."""
+    """Whether source calls target through one or more calls (a package never reaches itself
+    by not calling anything)."""
     seen: set[str] = set()
-    pending = [source]
+    pending = [edge.target for edge in graph.calls_from(source)]
     while pending:
         current = pending.pop()
         if current == target:
@@ -850,20 +856,40 @@ def reaches(graph: Graph, source: str, target: str) -> bool:
     return False
 
 
+HOLDER_KINDS: tuple[NodeKind, ...] = ("family", "process")
+
+
 def binding_problems(graph: Graph, root: Path) -> list[str]:
-    """Each app binds a use case with a `run.py` that sits in its holder or calls it.
+    """Each app sits in a package and binds a use case, a process with a `run.py`, that sits
+    strictly inside the holder or calls it.
 
     The apps configure the holder's mechanism for that use case, so a use case that never
-    reaches the holder is a binding nothing would honour.
+    reaches the holder is a binding nothing would honour. The holder never binds itself: a
+    declaration names who uses the mechanism, not the mechanism.
     """
     problems: list[str] = []
     for node in graph.nodes.values():
         for app in node.apps:
             target = use_case_id(app.use_case)
             bound = graph.nodes.get(target)
-            if bound is None or not (root / bound.path / "run.py").is_file():
+            if node.kind not in HOLDER_KINDS:
+                problems.append(
+                    f"{app.path}: its catalogue sits in {node.path}, a {node.kind}; only a "
+                    "package holds a catalogue"
+                )
+            elif bound is None or not (root / bound.path / "run.py").is_file():
                 problems.append(
                     f"{app.path}: use_case {app.use_case!r} is not a package with a run.py"
+                )
+            elif target == node.id:
+                problems.append(
+                    f"{app.path}: use_case {app.use_case!r} is the holder itself; an app "
+                    "binds a use case inside the holder or one that calls it"
+                )
+            elif bound.kind == "family":
+                problems.append(
+                    f"{app.path}: use_case {app.use_case!r} is a family; an app binds one "
+                    "use case, a process"
                 )
             elif not is_use_case(graph, target):
                 problems.append(
@@ -879,7 +905,9 @@ def binding_problems(graph: Graph, root: Path) -> list[str]:
 
 
 def declaration_problems(graph: Graph, root: Path = ROOT) -> list[str]:
-    """Every problem of the declarations: misplaced, malformed, or a broken binding."""
+    """Every problem of the declarations: misplaced, malformed, or a broken binding. A
+    declaration in place always hangs on a node: `in_place` refuses a second catalogue and a
+    bytecode cache on its path, the only folders the graph leaves out."""
     logic = root / LOGIC_NAME
     _, malformed = read_catalogues(logic)
     return misplaced_declarations(logic) + malformed + binding_problems(graph, root)

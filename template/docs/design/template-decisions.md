@@ -80,16 +80,20 @@ The complete guide is in [vertical-pipelines.md](vertical-pipelines.md); the nam
 ### A6. Declarations: a catalogue of apps, data bound to a use case
 
 - **Rule:** besides packages, `_shared/` and groupings, the tree may hold declarations, in two folder kinds that hold no Python:
-  - **catalogue** (kind `apps`): a folder named `apps/` directly inside a package, the holder, whose mechanism the apps configure. It holds only app folders, at least one, and no file. `apps` is a reserved name: a folder of that name is always a catalogue, never a package.
-  - **app** (kind `app`): `<holder>/apps/<name>/`. It holds exactly one file, `app.toml`, and nothing else: no other file, no folder, no Python.
-  - `app.toml` sits nowhere else under `backend_logic/`.
+  - **catalogue** (kind `apps`): a folder named `apps/` directly inside a package, the holder, whose mechanism the apps configure.
+    - It holds only app folders, at least one, each named `[a-z][a-z0-9_]*`, and no file.
+    - `apps` is a reserved name: a folder of that name is always a catalogue, never a package.
+    - The holder may be a package inside `_shared/` (a shared mechanism), but the catalogue never sits directly in the `_shared/` folder, in a grouping, or in an app. A path has exactly one `apps/`.
+  - **app** (kind `app`): `<holder>/apps/<name>/`. It holds exactly one regular file, `app.toml`, and nothing else: no other file, no folder, no Python.
+  - Nothing below a catalogue is skipped, unlike everywhere else: a `__pycache__/`, a symlink (to a folder or to `app.toml`) or a FIFO there is a violation.
+  - No entry named `app.toml`, of any type, sits anywhere else under `backend_logic/`: not beside a `run.py`, not in a `__pycache__/`, not below a second `apps/`.
   - The file is a closed subset of TOML read by `tests/support/declarations.py` with the standard library only.
     - **Head:** exactly `use_case` and `summary`, each once, both strings. The template's gates read them and hold them to the code.
     - **`[settings]`:** an optional table for the project's own keys, each `key = "text"` or `key = 123` (decimal). The reader returns the values typed (`str | int`). The gates check only their form; **each project key is held to the code by a project-owned test in `tests/<family>/`**.
-    - **Lines:** comment lines, blank lines, the header `[settings]`, and `key = value` lines with a lowercase key and exactly one space around `=`. A string has no `"`, `\` or control characters. Only LF or CRLF end a line.
+    - **Lines:** comment lines, blank lines, the header `[settings]`, and `key = value` lines with a lowercase key and exactly one space around `=`. A string has no `"` or `\`. An integer has at most 18 digits and is never `-0`. No line holds a character of the Unicode categories `Cc` (tab included), `Cf`, `Zl`, `Zp`, `Co` or `Cs`. Only LF or CRLF end a line. A file that is not UTF-8 or not a regular file is a problem, never an exception.
     - **Fails:** an unknown, repeated or missing head key; a head key under `[settings]`; a repeated key or header; another or nested table; a float, boolean or array; an inline comment; an empty `[settings]`.
     - Reading is two checks: a lexical check of every line against the subset, then `tomllib.loads` through the typed stub `tests/support/tomllib.pyi` (values `object`, narrowed with `isinstance`). Every accepted file is valid TOML, read with TOML's meaning.
-  - `use_case` is a package path under `backend_logic/` (`notes/list`) naming a **use case**: a package with a `run.py` that its parent family dispatches by a `case`, outside every `_shared/`. It sits inside the holder or calls the holder, directly or through the packages it calls.
+  - `use_case` is a package path under `backend_logic/` (`notes/list`) naming a **use case**. That is a **process** with a `run.py` that its parent family dispatches by a `case`, outside every `_shared/`; never a family. It sits strictly inside the holder or calls the holder through one or more calls, and it is never the holder itself.
   - A new head key, table, kind or file name is a change to the pipefeuille (RUNBOOK, task C); a project never edits the reader or the gates to add one. A project key needs no change here: it goes under `[settings]`, with its test.
   - Template example: `backend_logic/notes/apps/list_notes/app.toml` binds `notes/list`, with the project key `route = "/notes"`. Guide §2 ("Declarations") and §2.2.
 - **Why:**
@@ -99,6 +103,15 @@ The complete guide is in [vertical-pipelines.md](vertical-pipelines.md); the nam
   - A head and one table for project keys. The first version closed the file at the two head keys, which could not host the real case it generalizes. That case's declaration also carried a route, a byte limit, an hourly quota and a client scope, held to the code by a test of that project. The template's gates cannot know what such a key means. So the gates hold the head; the table keeps every other key closed in form (one table, strings or decimal integers, no nesting) and leaves its meaning to a project-owned test, as the originating project already did.
   - `tomllib` behind a lexical check, not a hand parser. The first version parsed the subset by hand, because typeshed types `tomllib.loads` as `dict[str, Any]`. Since the stub `tests/support/tomllib.pyi` (C2) types the values as `object`, `tomllib` can be used under `disallow_any_expr`. It is as strict and simpler: the lexical check keeps the subset (one pattern per line, no state), and `tomllib` brings what a hand parser had to carry itself (repeated keys and headers, which keys belong to which table, the value of `1_000`). Every accepted file has passed TOML's own parser, not a reimplementation of it.
   - The binding must reach the holder: the apps configure the holder's mechanism for that use case, so a use case that never reaches it would be a binding that nothing honours. The originating project checked that its use case reached the mechanism's code through its imports; the generic form is the graph's call reachability.
+  - A critic on another model attacked the first two versions and verified six holes, each fixed with a self-test:
+    - a family bound as `use_case` (and a holder binding itself);
+    - a `__pycache__/` inside a catalogue or an app, which every scanner skipped, holding arbitrary files;
+    - a symlinked app folder hiding a malformed `app.toml`, and a broken symlink or FIFO named `app.toml` passing as "not a file";
+    - a second `apps/` inside an app, whose declaration dropped silently from the graph;
+    - unchecked app names;
+    - invisible characters (C1 controls, U+2028, a bidi override, a zero-width space), `-0`, a 5000-digit integer and a non-UTF-8 file. The last two raised uncaught exceptions.
+  - A holder inside `_shared/` stays allowed, against that critic's proposal to forbid any `_shared` part. The case this rule generalizes is exactly a shared mechanism (`_shared/upload/`) whose catalogue binds use cases of two families. Forbidding it would leave the rule unable to host its own origin. What stays forbidden is a catalogue directly in the `_shared/` folder, which is a shelf, not a package.
+  - Self-binding is refused: a declaration names who uses the mechanism, and a package that only "binds itself" says nothing the tree does not already say.
   - Alternatives discarded:
     - the declaration beside the use case's `run.py`, which scatters the bindings;
     - a top-level tree of declarations, which separates the data from the mechanism that reads it;
@@ -113,16 +126,26 @@ The complete guide is in [vertical-pipelines.md](vertical-pipelines.md); the nam
     - `app.toml` copied beside `notes/list/run.py` failed `test_declarations.py::test_every_declaration_sits_in_a_catalogue`;
     - `use_case = "notes/listing"` failed `test_declarations.py::test_every_app_binds_a_use_case_of_its_holder` and both tests of `tests/example/test_notes_apps.py`.
   - In the last two mutations, `uv run python tests/support/architecture.py` printed the problem as `declaration: …` and exited 1.
+  - The critic's repros, replayed on a copy of the template after the fixes (193 passed clean), each turned the gates red:
+    - `use_case = "notes"` and `use_case = "roles"` failed `test_declarations.py::test_every_app_binds_a_use_case_of_its_holder`;
+    - `__pycache__/` in `apps/` and in the app, a symlinked app folder, and `BAD NAME!` failed `test_style.py::test_every_folder_has_the_files_its_kind_requires`;
+    - a broken-symlink `app.toml` beside `notes/list/run.py` failed `::test_every_declaration_sits_in_a_catalogue`;
+    - a FIFO `app.toml` failed `::test_every_declaration_is_well_formed` ("not a regular file") and the shape gate;
+    - `apps/` nested in an app failed `::test_every_declaration_sits_in_a_catalogue` and the shape gate;
+    - `apps/` directly in `_shared/` failed `::test_every_app_binds_a_use_case_of_its_holder` and the shape gate;
+    - U+0085, U+202E, U+200B, `-0`, a 5000-digit integer and a Latin-1 byte each failed `::test_every_declaration_is_well_formed`, as a problem, not an exception.
+  - `apps/` in the shared package `_shared/note_name/` binding `notes/list` passes every template gate, by design (above). Only the example's pin of the catalogue fails.
   - After `[settings]` and the switch to `tomllib`, on a copy (154 passed before and after each mutation), these mutations of the example also turned the gates red:
     - `route = "/note"` failed `tests/example/test_notes_apps.py::test_the_declared_route_serves_the_bound_use_case` and `::test_the_notes_catalogue_is_the_apps_there_are`;
     - `flag = true`, a repeated `route` and a `[settings.deep]` header each failed `test_declarations.py::test_every_declaration_is_well_formed`;
     - the reader's integer pattern loosened to `-?[0-9_]+` failed `::test_declaration_reader_is_strict` and `::test_lexical_subset_never_accepts_what_tomllib_rejects`.
 - **Gate:**
-  - Shape: `tests/gates/test_style.py::test_every_folder_has_the_files_its_kind_requires` (kinds `apps` and `app`), with the self-test `::test_shape_scanner_reports_every_declaration_rule`. That self-test covers Python in an app, a second file, a folder in an app, a file in a catalogue, a catalogue in `_shared/` and an empty catalogue.
+  - Shape: `tests/gates/test_style.py::test_every_folder_has_the_files_its_kind_requires` (kinds `apps` and `app`), with the self-test `::test_shape_scanner_reports_every_declaration_rule`. That self-test covers Python in an app, a second file, a folder in an app, a file in a catalogue, a catalogue in `_shared/` and an empty catalogue. `::test_shape_scanner_skips_nothing_in_data_folders` covers a `__pycache__/` in a catalogue and in an app, a symlinked app folder, a symlinked and a FIFO `app.toml`, misnamed apps and a catalogue inside an app.
   - Content: `tests/gates/test_declarations.py::test_every_declaration_sits_in_a_catalogue`, `::test_every_declaration_is_well_formed` and `::test_every_app_binds_a_use_case_of_its_holder`, with two self-tests:
-    - `::test_declaration_reader_is_strict` covers a good file with `[settings]` (typed values), CRLF, every lexical failure (another or nested table, boolean, float, array, leading zero, inline comment, spacing, escape, dotted key, vertical tab, control character in a comment, lone CR), the `tomllib` failures (repeated key, repeated header), and the structure failures (a project key in the head, a non-string head value, a head key under `[settings]`, an empty `[settings]`, a `_shared` path, an empty summary);
+    - `::test_declaration_reader_is_strict` covers a good file with `[settings]` (typed values), CRLF, every lexical failure (another or nested table, boolean, float, array, leading zero, `-0`, 19 and 4301 digits, inline comment, spacing, escape, dotted key), every hidden character (vertical tab, C0 and C1 controls, U+2028, a bidi override, a zero-width space, a BOM, a tab, a lone CR), the `tomllib` failures (repeated key, repeated header), and the structure failures (a project key in the head, a non-string head value, a head key under `[settings]`, an empty `[settings]`, a `_shared` path, an empty summary);
     - `::test_lexical_subset_never_accepts_what_tomllib_rejects` is the differential check. On about 40 000 seeded near-miss lines, every line the lexical check accepts must parse with `tomllib` alone, after a head and under `[settings]`, and keep its value;
     - `::test_declaration_scanners_report_every_misplacement_and_broken_binding` covers a declaration beside a `run.py`, one too deep, a missing key, a missing package, a step of a process and a use case that never reaches the holder. It also checks that no node is made below a catalogue.
+    - `::test_declaration_scanners_refuse_hostile_entries_and_bindings` covers a declaration in a `__pycache__/`, below a nested `apps/`, as a FIFO beside a `run.py` and as a broken symlink (all misplaced); a FIFO and a symlink in place, and a Latin-1 file (problems, not exceptions); a catalogue directly in `_shared/`; a family as `use_case`; and the holder binding itself. A well-bound app inside the holder and one in a shared package pass.
   - Map: `tests/support/architecture.py` (`binding_problems`, `declaration_problems`; the apps on `Node.apps`).
   - Example: `tests/example/test_notes_apps.py` pins the notes catalogue and holds its project key: `::test_the_declared_route_serves_the_bound_use_case`.
 - **Does not prove:**
@@ -131,6 +154,8 @@ The complete guide is in [vertical-pipelines.md](vertical-pipelines.md); the nam
   - Anything about the meaning of a `[settings]` key, nor that every key has a test: a project key that no project test reads passes every template gate. Pinning the whole `Declaration` in a project test, as `tests/example/test_notes_apps.py` does, makes a new key fail until someone looks at it.
   - Anything about other files: only `app.toml` and the shape of the two kinds are checked. A data file with another name inside a package is not reported, because the shape gate looks only at `.py` names in packages.
   - Reachability through anything but the `<alias>.run(...)` calls the graph sees (E1).
+  - Visible look-alikes (a Cyrillic `а` in a `summary`) and unassigned code points: only the listed categories are refused, because unassigned ones depend on the Python version's Unicode tables.
+  - Symlinked folders outside a catalogue: `rglob` does not follow them, so an `app.toml` behind one is not seen.
 
 ---
 
@@ -235,14 +260,14 @@ The complete guide is in [vertical-pipelines.md](vertical-pipelines.md); the nam
 
 - **Rule:** each scanner in `tests/gates/test_style.py`, `tests/gates/test_architecture.py`, `tests/gates/test_boundaries.py` and `tests/gates/test_declarations.py` has a test that runs it against a synthetic violating source.
 - **Why:** an import scanner that only read `node.module` passed empty without seeing `from X import a`.
-- **Gate:** `test_style_scanner_reports_every_rule`, `test_shape_scanner_reports_every_kind`, `test_placement_scanner_reports_every_rule`, `test_closed_name_scanner_reports_bare_str`, `test_eager_import_scanner_reports_only_top_level_eager_imports`, `test_internal_import_scanner_sees_every_import_form`, `test_log_reader_grants_only_owner_approved_entries`, `test_log_reader_grants_delegated_entries_only_with_quote_and_critic`, `test_log_reader_voids_hidden_repeated_or_malformed_lines`, `test_template_rule_reach_sees_paths_and_wider_patterns`, `test_support_reader_follows_every_import_form`, `test_naming_reader_reports_missing_and_extra_names`, `test_escape_hatch_scanner_ignores_strings`, `test_collection_hook_scanner_reports_every_hook`, `test_graph_scanner_reports_every_violation`, `test_docstring_parser_keeps_notes_and_continuations`, `test_loader_scanner_sees_every_form`, `test_parallel_config_scanner_allows_only_the_harness_server`, `test_third_party_scanner_sees_every_import_form`, `test_dependency_reader_grants_only_what_is_declared`, `test_stub_checker_reports_every_drift`, `test_shape_scanner_reports_every_declaration_rule`, `test_declaration_reader_is_strict`, `test_lexical_subset_never_accepts_what_tomllib_rejects`, `test_declaration_scanners_report_every_misplacement_and_broken_binding`.
+- **Gate:** `test_style_scanner_reports_every_rule`, `test_shape_scanner_reports_every_kind`, `test_placement_scanner_reports_every_rule`, `test_closed_name_scanner_reports_bare_str`, `test_eager_import_scanner_reports_only_top_level_eager_imports`, `test_internal_import_scanner_sees_every_import_form`, `test_log_reader_grants_only_owner_approved_entries`, `test_log_reader_grants_delegated_entries_only_with_quote_and_critic`, `test_log_reader_voids_hidden_repeated_or_malformed_lines`, `test_template_rule_reach_sees_paths_and_wider_patterns`, `test_support_reader_follows_every_import_form`, `test_naming_reader_reports_missing_and_extra_names`, `test_escape_hatch_scanner_ignores_strings`, `test_collection_hook_scanner_reports_every_hook`, `test_graph_scanner_reports_every_violation`, `test_docstring_parser_keeps_notes_and_continuations`, `test_loader_scanner_sees_every_form`, `test_parallel_config_scanner_allows_only_the_harness_server`, `test_third_party_scanner_sees_every_import_form`, `test_dependency_reader_grants_only_what_is_declared`, `test_stub_checker_reports_every_drift`, `test_shape_scanner_reports_every_declaration_rule`, `test_declaration_reader_is_strict`, `test_lexical_subset_never_accepts_what_tomllib_rejects`, `test_declaration_scanners_report_every_misplacement_and_broken_binding`, `test_shape_scanner_skips_nothing_in_data_folders`, `test_declaration_scanners_refuse_hostile_entries_and_bindings`.
 - **Does not prove:** semantics. A style gate does not know whether a docstring tells the truth nor whether a `validate_*` fixes in secret.
 
 ### D7. Tests are split by lifetime: gates, mechanisms, example
 
 - **Rule:** `tests/gates/` holds the global gates (style, architecture, config) that every project keeps unchanged; they read only `backend_logic`/`http_adapter` and mention the domain only inside synthetic self-test strings. `tests/mechanisms/` holds the tests of the shipped mechanisms and moves with them. `tests/example/` holds the example-domain tests and is deleted with `notes/` and `roles/`. A project's own tests go in `tests/<family>/`. Helpers shared by test folders live in `tests/support/`, which is on the pytest `pythonpath`. Test folders have no `__init__.py`.
 - **Why:** with every test flat in `tests/`, nothing told a new project which files survive a domain swap; an agent could delete a gate together with the example, or keep example tests that pin the old domain.
-- **Measured:** a copy of the template without `tests/example/` gives a clean mypy and 122 passing tests (gates and mechanisms), against 192 with it.
+- **Measured:** a copy of the template without `tests/example/` gives a clean mypy and 124 passing tests (gates and mechanisms), against 194 with it.
 - **Gate:** none mechanical; the measurement above is the evidence. Re-run it after changing a gate.
 - **Does not prove:** that a future gate stays domain-free; review a new gate for imports of `notes`/`roles`.
 
