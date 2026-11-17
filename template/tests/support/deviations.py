@@ -19,8 +19,9 @@ or by the orchestrator, under a delegation the owner wrote, after an independent
 `lazy`, `suppress:` allows `# type: ignore`, `cast(` or `# noqa` in one file. The quote is what
 the owner wrote; an agent never approves its own proposal without one. A delegated entry grants
 nothing without the critic's `approve`, nor when one of its tokens reaches the template's own
-rules (tests/gates/, tests/support/deviations.py, tests/support/architecture.py): those change
-only in the pipefeuille, by its owner.
+rules (tests/gates/, the files of TEMPLATE_SUPPORT_FILES, pyproject.toml): those change only in
+the pipefeuille, by its owner. Nor when a `mypy:` pattern lifts the gate for a whole tree
+(`backend_logic.*`): that loosens pyproject.toml rather than exempting one boundary module.
 
 The reader is strict on purpose, because whatever it tolerates an agent can use to hide a grant:
 - `## Entries` ends at the next heading of level 1 or 2. Fenced code and HTML comments are read
@@ -63,13 +64,27 @@ FIELDS = {
     "- Exempts:": "exempts",
 }
 
-# What a delegation can never open: the files that hold the template's rules, by `suppress:`
-# path (from the project root) and by `mypy:` module.
+# The template's own files in tests/support: copied into every project, never edited there,
+# never opened by a delegation. This is the one list; AGENTS.md ("Who can touch what" and
+# "Gates") and the README name the same set, and every tests/support module a gate imports must
+# be in it (tests/gates/test_deviations.py::test_template_support_files_are_named_once). A
+# project's own helpers and stubs in tests/support are not in it, so they stay delegable.
+TEMPLATE_SUPPORT_FILES = (
+    "architecture.py",
+    "boundaries.py",
+    "declarations.py",
+    "deviations.py",
+    "tomllib.pyi",
+)
+# What a delegation can never open, by `suppress:` path (from the project root): the gates, the
+# template's support files, and the tool configuration itself.
 TEMPLATE_RULE_PATHS = (
     "tests/gates/",
-    "tests/support/deviations.py",
-    "tests/support/architecture.py",
+    *(f"tests/support/{name}" for name in TEMPLATE_SUPPORT_FILES),
+    "pyproject.toml",
 )
+# Shell glob characters, as fnmatch reads them; mypy itself reads only a whole `*` component.
+GLOB = frozenset("*?[")
 ROOT = Path(__file__).resolve().parents[2]
 
 OWNER_FIELD = '`Approved by owner: YYYY-MM-DD "..."`'
@@ -365,11 +380,12 @@ def template_rule_modules(root: Path) -> tuple[str, ...]:
     """Every module name under which mypy may see a file of the template's rules.
 
     tests/gates/ is named from the root (`tests.gates.test_style`); tests/support is on
-    mypy_path, so its modules are named by file (`deviations`) and could be named from the root
-    too. A synthetic gate name stands for a gate added after this list was read.
+    mypy_path, so its modules are named by file (`deviations`, and a stub by the module it
+    replaces: `tomllib`) and could be named from the root too. A synthetic gate name stands for
+    a gate added after this list was read.
     """
     gates = sorted(path.stem for path in (root / "tests" / "gates").glob("*.py"))
-    support = ("deviations", "architecture")
+    support = tuple(name.rpartition(".")[0] for name in TEMPLATE_SUPPORT_FILES)
     return (
         "tests.gates",
         *(f"tests.gates.{name}" for name in (*gates, "test_added_later")),
@@ -398,6 +414,17 @@ def reaches_template_rules(token: str, root: Path = ROOT) -> bool:
             for module in template_rule_modules(root)
         )
     return False
+
+
+def covers_a_whole_tree(token: str) -> bool:
+    """A `mypy:` pattern with a glob in its first two components lifts the flag for a tree.
+
+    `backend_logic.*`, `*.parse` or `http_adapter.*.app` switch `disallow_any_expr` off for a
+    whole top-level package, not one boundary module (C2): that is loosening `pyproject.toml`,
+    which no delegation covers. `backend_logic.pg.*` and a bare `wire_client` are one boundary.
+    """
+    kind, _, target = token.partition(":")
+    return kind == "mypy" and any(GLOB & set(part) for part in target.split(".")[:2])
 
 
 def entry_problems(entry: Entry) -> list[str]:
@@ -434,11 +461,15 @@ def delegation_problems(entry: Entry) -> list[str]:
         found.append(f"{entry.title}: approved by delegation, but the critic's verdict is reject")
     elif delegated is not None and review[0] < delegated:
         found.append(f"{entry.title}: the critic's review predates the owner's delegation")
-    found.extend(
-        f"{entry.title}: a delegation never covers the template's own rules: `{token}`"
-        for token in entry.exempts
-        if reaches_template_rules(token)
-    )
+    for token in entry.exempts:
+        if reaches_template_rules(token):
+            found.append(
+                f"{entry.title}: a delegation never covers the template's own rules: `{token}`"
+            )
+        elif covers_a_whole_tree(token):
+            found.append(
+                f"{entry.title}: a delegation never lifts a gate for a whole tree: `{token}`"
+            )
     return found
 
 
