@@ -24,7 +24,7 @@ The table below says what the shipped example **teaches**; it goes away with the
 | `backend_logic/notes/save/` | `async` process: lock and branch in `run`, child steps `decode`/`encode` called by `decoding.run`/`encoding.run`, `commit` with receipt, post-commit `NoteResultError`. |
 | `backend_logic/notes/prepare/` | Owner of the lifetime resources (`Resources`: store, locks, clock), prepared once in the `lifespan`. |
 | `backend_logic/notes/_shared/storage/` | Disk mechanism, for `notes` only: `read` (`Found`/`Missing`), `write` (atomic with `WriteReceipt`), `scan`, `lock` (named locks never evicted) and `_shared/path` (confinement). Grouping: `contracts.py` with `FileStore`, no `run`. |
-| `backend_logic/notes/apps/` | Catalogue of declarations, data with no Python: `list_notes/app.toml` binds the use case `notes/list` (guide §2, "Declarations"). Pinned by `tests/example/test_notes_apps.py`. |
+| `backend_logic/notes/apps/` | Catalogue of declarations, data with no Python: `list_notes/app.toml` binds the use case `notes/list`, and its `[settings]` holds one project key, `route = "/notes"` (guide §2, "Declarations"). `tests/example/test_notes_apps.py` pins it and holds the key to the code. |
 | `backend_logic/roles/` | Family: `RolesRequest = SummarizeNote \| DigestNotes`. |
 | `backend_logic/roles/summarizer/` | Provider-neutral LLM role: `Model` port (Protocol), projection before the prompt, response as a proposal, local admission. Async step on its own `await` line. |
 | `backend_logic/roles/digest/` | Real parallelism: `asyncio.TaskGroup` with one `summarizer.run` per note, budget validated before the calls, integration in fixed order after the barrier, a failure cancels the rest. |

@@ -1123,6 +1123,14 @@ def app_label(app: Declaration) -> str:
     return f"{CATALOGUE}/{app.name}"
 
 
+def settings_text(app: Declaration) -> str:
+    """The project's keys as written: `route = "/notes", max_bytes = 1048576`."""
+    return ", ".join(
+        f'{key} = "{value}"' if isinstance(value, str) else f"{key} = {value}"
+        for key, value in app.settings.items()
+    )
+
+
 def holder_label(app: Declaration) -> str:
     """An app by its full place under backend_logic: `notes/apps/list_notes`."""
     return f"{display('.'.join(Path(app.holder).parts))}/{app_label(app)}"
@@ -1173,6 +1181,8 @@ def render_text(graph: Graph) -> str:
             lines.append(f"{pad}  │ bound by: {names}")
         for app in node.apps:
             lines.append(f"{pad}  {app_label(app)}/  [app] binds {app.use_case}  {app.summary}")
+            if app.settings:
+                lines.append(f"{pad}    │ settings: {settings_text(app)}")
         for child in children(graph, node.id, shared=shared):
             visit(child, depth + 1, shared)
 
@@ -1220,7 +1230,13 @@ def node_json(node: Node) -> dict[str, object]:
         "skeleton": node.skeleton,
         "steps": [step_json(step) for step in node.steps],
         "apps": [
-            {"name": app.name, "path": app.path, "use_case": app.use_case, "summary": app.summary}
+            {
+                "name": app.name,
+                "path": app.path,
+                "use_case": app.use_case,
+                "summary": app.summary,
+                "settings": dict(app.settings),
+            }
             for app in node.apps
         ],
     }
@@ -1401,7 +1417,9 @@ def panel(
     if node.apps:
         rows = "".join(
             f"<li><code>{esc(app_label(app))}/{esc(Path(app.path).name)}</code> binds "
-            f"{go(use_case_id(app.use_case), app.use_case)}: {esc(app.summary)}</li>"
+            f"{go(use_case_id(app.use_case), app.use_case)}: {esc(app.summary)}"
+            + (f' <span class="ports">{esc(settings_text(app))}</span>' if app.settings else "")
+            + "</li>"
             for app in node.apps
         )
         parts.append(f"<h3>Apps it holds (declarations, no code)</h3><ul>{rows}</ul>")
