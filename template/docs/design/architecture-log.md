@@ -15,6 +15,13 @@ The writer is the orchestrator model or the owner. An implementer who discovers 
 
 An entry that breaks a template rule is a **deviation** ([AGENTS.md → Deviations](../../AGENTS.md#deviations-owner-decision)). The agent writes it with `- Status: proposed` and stops; writing it grants nothing. Only after the owner says yes in the conversation does it become `- Status: approved`, with `- Approved by owner: YYYY-MM-DD "<the owner's words, verbatim>"`.
 
+When the owner has delegated approvals in writing ([AGENTS.md → Deviations](../../AGENTS.md#deviations-owner-decision), item 4), the orchestrator may approve an entry the delegation covers. The entry then carries, instead of `Approved by owner`, both:
+
+- `- Approved by delegation: YYYY-MM-DD "<the owner's delegation, verbatim>"`: the date the owner wrote the delegation, and its exact words.
+- `- Critic: YYYY-MM-DD <critic> checked <what>; verdict: approve`: who reviewed it (an independent critic subagent, not the agent that wrote the proposal; name its tier, e.g. "critic subagent (intermediate model)"), what it checked, and its verdict, on or after the delegation's date. Each field is one line (the reader does not join wrapped lines), and appears once: after a revision, the new review replaces the `Critic` line (the reader keeps only the last one, so an older `reject` left above a later `approve` is invisible to the gate; keep its findings in `Decision and reason`). The `Critic` line must contain ` checked ` and end with `; verdict: approve` or `; verdict: reject`; a rejected review never sits under `Status: approved`.
+
+A delegation never covers the template's own rules: a delegated entry with a token that reaches `tests/gates/`, `tests/support/deviations.py` or `tests/support/architecture.py` (as a `suppress:` path, or a `mypy:` pattern that covers `tests.gates`, `deviations` or `architecture`) grants nothing, and neither does an entry with both approval fields.
+
 The gates read this file: `tests/support/deviations.py` collects the `- Exempts:` tokens of approved entries under `## Entries` (code fences and `<!--` lines are skipped). The tokens are:
 
 | Token | Opens | Gate |
@@ -23,7 +30,7 @@ The gates read this file: `tests/support/deviations.py` collects the `- Exempts:
 | `eager:<module>` | a top-level import of that module without `lazy` | `tests/gates/test_style.py` |
 | `suppress:<file path>` | `cast(...)`, `# type: ignore[...]` or `# noqa` in that file | `tests/gates/test_deviations.py` |
 
-No other token exists. Loosening another setting of `pyproject.toml` or editing `tests/gates/` is never a project deviation. A malformed entry (unknown `Status`, approval without date and quoted words, unknown token) fails `test_architecture_log_is_well_formed`.
+No other token exists. Loosening another setting of `pyproject.toml` or editing `tests/gates/` is never a project deviation. A malformed entry fails `tests/gates/test_deviations.py::test_architecture_log_is_well_formed`: unknown `Status`; `approved` without a dated, quoted approval; a delegated approval without the owner's quoted words, without a well-formed `Critic`, with `verdict: reject`, with a review dated before the delegation, or with a token reaching the template's rules; both approval fields; an unknown token.
 
 ## Log rules
 
@@ -42,6 +49,8 @@ Absence diagnosis: **(1)** implementation error · **(2)** architectural omissio
 
 - Status: proposed / approved / rejected (only for deviations; the agent always writes proposed).
 - Approved by owner: YYYY-MM-DD "verbatim words" (only the owner's yes; never paraphrased).
+- Approved by delegation: YYYY-MM-DD "the owner's delegation, verbatim" (instead of the line above, only under a written delegation).
+- Critic: YYYY-MM-DD <critic> checked <what>; verdict: approve / reject (required with a delegation).
 - Exempts: `mypy:<module>`, `eager:<module>`, `suppress:<file>` (only for deviations).
 - Measured cost of following the rule: errors, files, lines; alternatives tried.
 - Observation and source: what was seen, where (file:line, source, test).
@@ -49,10 +58,11 @@ Absence diagnosis: **(1)** implementation error · **(2)** architectural omissio
 - Diagnosis: (1) / (2) / (3) and why.
 - Decision and reason: what changes in the code; alternatives discarded.
 - Evidence needed: what will prove it, and what it will NOT prove.
+- Exit criterion: (only for a temporary decision, such as a quarantine of imported legacy code) what ends it, and what is deleted in that same change.
 - Later result: filled in afterwards, with evidence.
 ```
 
-## Example (delete when recording the first real entry)
+## Examples (delete when recording the first real entry)
 
 ```markdown
 ### 2026-11-10 — `pdfparse` enters as an `Any` boundary
@@ -72,6 +82,21 @@ Absence diagnosis: **(1)** implementation error · **(2)** architectural omissio
 - Evidence needed: clean mypy outside the exemption; `tests/gates/test_config.py` green without
   being edited (it reads the `Exempts` token above); malformed PDF becomes `ValueError`. Does NOT
   prove that the library handles encrypted PDFs.
+- Later result: —
+```
+
+The same kind of entry, approved under a delegation instead of by the owner directly:
+
+```markdown
+### 2026-11-12 — `xlsxread` enters as an `Any` boundary
+
+- Status: approved
+- Approved by delegation: 2026-11-12 "port the spreadsheet import; approve the boundaries it needs yourself, each one after a critic"
+- Critic: 2026-11-12 critic subagent (intermediate model, not the author) checked the 6 mypy errors, the absent typed alternatives and that only `sheets.parse` is exempted; verdict: approve
+- Exempts: `mypy:backend_logic.sheets.parse.*`
+- Measured cost of following the rule: 6 mypy errors in one module; no stub, no typed alternative.
+- Decision and reason: as in the example above, a narrowing package `sheets/parse/`.
+- Evidence needed: as above. Does NOT prove the critic was independent: that is the owner's review.
 - Later result: —
 ```
 

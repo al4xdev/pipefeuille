@@ -73,6 +73,16 @@ Keep one ledger (a roadmap file in the evidence folder) with, for each segment: 
 8. **Rehearse in the destination.** Transcribe goldens from the sealed result into test fixtures as plain text or JSON. Tests never import, run or locate the source. Branches the source run did not exercise but the destination code has are labelled "destination-only diagnostics" and make no reachability claim.
 9. **Delegate the leaf, then integrate.** Once contract, goldens and wiring exist, the method bodies follow `construction.md`. Run the four gates and update the ledger.
 
+## When the source must keep running: quarantine and frozen goldens
+
+The steps above assume the source stays outside the destination (a private snapshot, never imported). When the owner decides the old code must keep serving until its port lands, follow [RUNBOOK task D → quarantine and frozen goldens](../../RUNBOOK.md#legacy-that-must-keep-running-while-it-is-ported-quarantine-and-frozen-goldens). In short:
+
+- **Quarantine.** The imported code lives beside the governed root (the folder with the template's `pyproject.toml`), never inside it, with its own toolchain. A project-owned test in `tests/<family>/` holds the one explicit table and asserts that the quarantine is exactly that folder with exactly the imported files, and that no module of the destination imports it. The log entry records the origin commit and an `- Exit criterion:`; the change that lands the port deletes the folder, the table and its test together.
+- **Differential oracle, then frozen goldens.** Per behaviour that must not change, a legacy half (running only in the quarantine's own process) and a port half (the destination's `backend_logic.run`) answer the same seeded synthetic inputs, serialized by one serializer. Before the quarantine is deleted, each legacy half runs once and its cases (inputs and answers) are frozen as compressed JSON lines under `tests/<family>/goldens/`, with a `README.md` of the legacy commit, the generator command, seeds, sizes, case counts, serializer and SHA-256. From then on the oracle test holds the port to them byte for byte, decoding through `_shared/json/decode`.
+- **Each oracle must be able to fail.** One deliberate port mutation per oracle turns its golden test red; record it in the closing entry and revert it.
+
+This is the step 8 rule applied to a live source: the goldens are observed results transcribed into fixtures; the destination's tests never import, run or locate the source. The goldens are frozen once: after the deletion they cannot be regenerated, so a difference is a regression or an owner decision, never a reason to rewrite them.
+
 ## Stop condition
 
 The work is not done when the last segment is sealed. Near the end, run a full-flow comparison: the same synthetic fixtures and mocked model replies through the source (isolated, as above) and through the destination, comparing the **effective requests** sent to each model role and the resulting state and effects. Only an inventory fully covered by sealed segments plus that comparison supports a claim of parity; until then, report what is covered and what is not.
@@ -91,6 +101,7 @@ The work is not done when the last segment is sealed. Near the end, run a full-f
 
 - Observed fixtures show the branches they exercised, not that others are unreachable in the source.
 - Segment parity is not whole-flow parity.
+- Frozen goldens hold the port to the inputs that were frozen (their seeds and sizes), not to larger or other inputs a live oracle may have reached, nor to data the source kept outside its code.
 - Calls to a real model, OAuth or network still need explicit owner authorization, as in guide §11.
 
 ## Record
