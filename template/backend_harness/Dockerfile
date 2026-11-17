@@ -1,7 +1,10 @@
-# Agent runtime image: dsh (pinned) + our profile and plugins + the harness server.
-# Build context: this folder (backend_harness/), e.g. `./docker.sh build`. The same
-# image serves local runs and any container platform: nothing here depends on the
-# developer's machine, and no credential is baked in.
+# The backend image: dsh (pinned) + our profile and plugins + the harness server,
+# and the logic's HTTP application (backend_logic + http_adapter), the public server.
+# Build context: this folder (backend_harness/), plus the named context `logic`, the
+# template root (`./docker.sh build` passes `--build-context logic=..`; only the paths
+# copied below are read from it). The same image serves local runs and any container
+# platform: nothing here depends on the developer's machine, and no credential is
+# baked in.
 FROM node:24-bookworm-slim
 
 # The slim base has no CA bundle. Node carries its own, but uv's Python uses the
@@ -36,6 +39,17 @@ COPY --chmod=0644 server/pyproject.toml server/uv.lock server/.python-version ./
 # layer would double every wheel.
 RUN uv sync --frozen --no-dev --no-install-project --no-cache --python "$(tr -d '[:space:]' < .python-version)"
 COPY --chmod=0644 server/server.py ./
+
+# The logic's HTTP application: its own uv project (the template root's pyproject and
+# lock, Python 3.15), installed like the server's. Only what it imports is copied: no
+# tests, docs or the harness itself. PyYAML (through uvicorn[standard]) has no cp315
+# wheel and builds from its sdist without the C extension, as on a developer machine.
+WORKDIR /opt/app/web
+COPY --from=logic --chmod=0644 pyproject.toml uv.lock ./
+RUN uv sync --frozen --no-dev --no-install-project --no-cache --python 3.15
+COPY --from=logic --chmod=0755 backend_logic/ backend_logic/
+COPY --from=logic --chmod=0755 http_adapter/ http_adapter/
+RUN find /opt/app/web/backend_logic /opt/app/web/http_adapter -name __pycache__ -prune -exec rm -rf {} +
 
 # Side services (services/<name>/run.sh, started by the entrypoint). Generic on
 # purpose: adding a service never touches this file; services/install.sh finds
@@ -90,5 +104,10 @@ RUN mkdir -p "$DSH_HOME/profiles/node_modules" \
 USER node
 WORKDIR /home/node/work
 # The harness server listens on 127.0.0.1:8081 (loopback: only what runs in this
-# container reaches it). docker.sh serve publishes it on the host's loopback.
+# container reaches it, the HTTP application among them). The HTTP application is
+# the public server, on 0.0.0.0:8080 so the port can be published (docker.sh serve
+# publishes it on the host's loopback); its notes live in APP_DATA_ROOT, lost with
+# the container unless a volume is mounted there.
+ENV APP_DATA_ROOT=/home/node/data APP_HTTP_HOST=0.0.0.0 APP_HTTP_PORT=8080
+RUN install -d -m 0700 /home/node/data
 ENTRYPOINT ["/usr/local/bin/app-entrypoint"]

@@ -5,9 +5,9 @@
 # SIGTERM is forwarded to all of them. It knows no service by name.
 #
 # The harness server listens on APP_HARNESS_HOST:APP_HARNESS_PORT (default
-# 127.0.0.1:8081). SEAM: the logic's HTTP application (http_adapter) joins this
-# image in a later wave as the public server; it starts below, once the harness
-# accepts connections, and goes into `servers` next to it.
+# 127.0.0.1:8081, loopback). The logic's HTTP application (http_adapter, under
+# /opt/app/web) is the public server, on APP_HTTP_HOST:APP_HTTP_PORT; it starts
+# once the harness accepts connections and goes into `servers` next to it.
 set -uo pipefail
 
 # One JSON line on stderr per message of this script, like every other process
@@ -58,8 +58,8 @@ servers=("$harness")
 stopping=0
 trap 'stopping=1; kill -TERM "${servers[@]}" 2>/dev/null' TERM INT
 
-# Wait until the harness accepts connections: a server started after it (the
-# seam above) must never forward a request to a harness not yet up. Bounded: a
+# Wait until the harness accepts connections: the HTTP application, started after
+# it, must never forward a request to a harness not yet up. Bounded: a
 # harness that never listens fails the container instead of serving half of it.
 harness_wait=60
 deadline=$((SECONDS + harness_wait))
@@ -83,7 +83,9 @@ until (: </dev/tcp/127.0.0.1/"$port") 2>/dev/null; do
   sleep 0.2
 done
 
-# (seam) Start the public HTTP application here and append its pid to `servers`.
+# The public HTTP application: it reaches the harness on loopback only.
+(cd /opt/app/web && exec /opt/app/web/.venv/bin/python -m http_adapter.serve) &
+servers+=($!)
 
 # The servers are what the container lives for: the first to exit takes the
 # others down, and the container exits with its status. A trapped signal
