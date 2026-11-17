@@ -18,6 +18,7 @@ from backend_logic._shared.agents.harness.contracts import (
     MAX_INPUT_BYTES,
     HarnessAgents,
     OpenHarness,
+    escaped_size,
 )
 from backend_logic._shared.json.contracts import JsonValue
 from backend_logic._shared.json.decode.contracts import DecodeText
@@ -105,6 +106,26 @@ async def test_what_the_harness_would_refuse_is_never_sent() -> None:
     with pytest.raises(AgentsUnavailableError):
         await harness.agents().submit(bad_tenant)
     assert harness.requests == []
+
+
+def test_the_size_is_counted_as_the_harness_encodes_the_argv() -> None:
+    # json.dumps's default (ensure_ascii): é -> \\u00e9, € -> \\u20ac, 😀 -> a surrogate pair.
+    for text, size in (("a", 1), ("é", 6), ("€", 6), ("😀", 12), ('"é😀"', 20)):
+        assert escaped_size(text) == size, text
+
+
+async def test_a_latin_payload_is_refused_at_its_escaped_size() -> None:
+    harness = Harness(answering(202, b"{}"))
+    # 25 000 é encode to 50 000 UTF-8 bytes but 150 000 escaped ones: past the cap.
+    big = Submission(work="note_summary", tenant="owner", payload={"text": "é" * 25_000})
+    with pytest.raises(SubmissionTooLargeError):
+        await harness.agents().submit(big)
+    assert harness.requests == []
+
+
+async def test_a_harness_refusal_for_size_is_too_large() -> None:
+    with pytest.raises(SubmissionTooLargeError):
+        await Harness(answering(413, b'{"detail": "too large"}')).agents().submit(SUBMISSION)
 
 
 async def test_observe_maps_the_status_answers() -> None:

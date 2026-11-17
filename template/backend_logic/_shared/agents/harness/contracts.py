@@ -36,9 +36,16 @@ AGENTS: dict[AgentWork, str] = {
 }
 
 # The harness hands `input` to dsh as ONE argv string (json.dumps, ASCII escapes), and Linux
-# caps one argument at 128 KiB (MAX_ARG_STRLEN); past it the exec fails and the run ends
-# `failed` with no output. Refused here instead, with headroom for the cap's NUL.
+# caps one argument at 128 KiB (MAX_ARG_STRLEN). The harness server refuses more than this at
+# /dispatch (413, its own MAX_INPUT_BYTES); refused here first, counted the same way.
 MAX_INPUT_BYTES = 120_000
+
+
+def escaped_size(text: str) -> int:
+    """The bytes of a JSON text once its non-ASCII characters are escaped, as json.dumps
+    does by default: `\\uXXXX` (6), or a surrogate pair of them (12) past the BMP."""
+    return sum(1 if ord(char) < 0x80 else 6 if ord(char) <= 0xFFFF else 12 for char in text)
+
 
 # The harness's grammar: its ids are lowercase uuid4 strings, and a tenant becomes a path
 # segment of the run's workspace. Anything else would be refused there or never found again.
@@ -102,9 +109,9 @@ class HarnessAgents:
         if not TENANT.fullmatch(submission.tenant):
             raise AgentsUnavailableError("the tenant is not a harness path segment")
         payload: JsonValue = dict(submission.payload)
-        # The harness encodes the argv string the same way (ASCII escapes), so a non-ASCII
-        # character counts its six escaped bytes here too.
-        if len(self.write_json(payload).encode("ascii", "backslashreplace")) > MAX_INPUT_BYTES:
+        # The harness encodes the argv string with ASCII escapes, so a non-ASCII character
+        # counts its escaped bytes here too.
+        if escaped_size(self.write_json(payload)) > MAX_INPUT_BYTES:
             raise SubmissionTooLargeError()
         body: JsonValue = {
             "agent_name": AGENTS[submission.work],
@@ -112,6 +119,8 @@ class HarnessAgents:
             "input": payload,
         }
         answer = await self.post("dispatch", body, expected=202)
+        if answer.status_code == 413:
+            raise SubmissionTooLargeError()  # the harness counted more than this side did
         if answer.body is None:
             raise AgentsUnavailableError(f"dispatch answered {answer.status_code}")
         process_id = answer.body.get("process_id")

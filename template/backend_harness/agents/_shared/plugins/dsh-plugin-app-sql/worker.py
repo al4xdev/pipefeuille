@@ -5,6 +5,12 @@ the workspace as cwd, an empty environment, and the request as JSON on stdin. Pa
 already resolved by the fence (workspace or template); the model never hands DuckDB a path.
 Prints one JSON object on stdout.
 
+DuckDB never sees those paths either: it reads a path as a pattern (`*`, `?`, `[...]`, `{...}`
+expand, and `**` recurses), so a workspace file named `*` would load every file beside it,
+links included, past the fence. Each file is opened here, once (no symlink as its last part, a
+regular file), and DuckDB gets `/proc/self/fd/<n>`, which names that open file and nothing
+else: `g[a-z].csv` loads as itself.
+
 The lock-down is the "instance" approach, verified on the pinned duckdb (see the tests):
 tables are loaded first, then external access is switched off with no allowed path, so the
 agent's SQL reaches no file, not even the loaded ones, and no network. The one exception is
@@ -19,7 +25,11 @@ mypy and linted with the template's ruff (backend_harness/tests/test.sh).
 import csv
 import io
 import json
+import os
+import stat
 import sys
+from collections.abc import Iterator
+from contextlib import contextmanager
 from typing import TypedDict
 
 import duckdb
@@ -76,12 +86,26 @@ CSV_OPTIONS = {
 }
 
 
-def detect(path: str) -> str:
+@contextmanager
+def opened(table: Table) -> Iterator[tuple[int, str]]:
+    """The table's file, open, and the one path DuckDB may read it by (no pattern in it)."""
+    try:
+        fd = os.open(table["path"], os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
+    except OSError as error:
+        raise RefusedError(f"cannot open {table['shown']}: {error.strerror}") from error
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            raise RefusedError(f"{table['shown']} is not a regular file")
+        yield fd, f"/proc/self/fd/{fd}"
+    finally:
+        os.close(fd)
+
+
+def detect(fd: int) -> str:
     """A file's format from its content, not its name: Parquet by its magic bytes, JSON
     (array or one object per line; read_json tells which) by a leading { or [, and anything
     else is text for read_csv's sniffer, which finds the delimiter (comma, tab, ;, |)."""
-    with open(path, "rb") as file:
-        head = file.read(4096)
+    head = os.pread(fd, 4096, 0)
     if head.startswith(b"PAR1"):
         return "parquet"
     text = head.lstrip(b"\xef\xbb\xbf \t\r\n")
@@ -90,21 +114,21 @@ def detect(path: str) -> str:
     return "csv"
 
 
-def reader(table: Table) -> tuple[str, list[Scalar]]:
-    """The FROM clause and its parameters for one table."""
+def reader(table: Table, fd: int, path: str) -> tuple[str, list[Scalar]]:
+    """The FROM clause and its parameters for one table, read from its open file."""
     options = dict(table["options"])
     chosen = options.pop("format", None)
-    fmt = chosen if isinstance(chosen, str) else detect(table["path"])
+    fmt = chosen if isinstance(chosen, str) else detect(fd)
     if fmt != "csv":
         if options:
             raise RefusedError(
                 f"{table['shown']} reads as {fmt}: {', '.join(options)} apply only to "
                 "delimited text (or set format csv)"
             )
-        return f"read_{fmt}(?)", [table["path"]]
+        return f"read_{fmt}(?)", [path]
     names = [CSV_OPTIONS[key] for key in options]
     source = "read_csv(?" + "".join(f", {name} = ?" for name in names) + ")"
-    return source, [table["path"], *options.values()]
+    return source, [path, *options.values()]
 
 
 def connect(request: Request) -> duckdb.DuckDBPyConnection:
@@ -132,8 +156,9 @@ def load(con: duckdb.DuckDBPyConnection, tables: list[Table]) -> None:
         if not name.isidentifier() or not name.isascii():
             raise RefusedError(f"bad table name: {name}")
         try:
-            source, params = reader(table)
-            con.execute(f'CREATE TABLE "{name}" AS SELECT * FROM {source}', params)
+            with opened(table) as (fd, path):
+                source, params = reader(table, fd, path)
+                con.execute(f'CREATE TABLE "{name}" AS SELECT * FROM {source}', params)
         except (duckdb.Error, OSError) as error:
             raise RefusedError(
                 f"cannot load table {name} from {table['shown']}: {first_line(error)} "

@@ -26,7 +26,8 @@ How a call runs (`sql.js` → `worker.py`):
 1. Each table path goes through the `app-fs` fence (`resolveRead`: workspace or read-only agent template); it must be a regular file.
 2. A spill folder `/tmp/app-sql/<random>` (mode 700) is created outside the workspace, so the tenant id never shows in DuckDB's `allowed_directories`; it is removed after the call.
 3. `python -I worker.py` starts with an empty environment, cwd the workspace, the request as JSON on stdin.
-4. The worker connects in memory with extension autoload/autoinstall, community extensions and persistent secrets off, loads the tables, then sets `enable_external_access = false` and `lock_configuration = true`, so the query reaches no file (except the spill folder) and no network.
+4. The worker opens each table's resolved file itself (`O_NOFOLLOW`, a regular file) and gives DuckDB only `/proc/self/fd/<n>`: DuckDB reads a path as a pattern (`*`, `?`, `[...]`, `{...}`, `**`), so a workspace file named `*` would otherwise load every entry beside it, past the fence. A name with those characters (`g[a-z].csv`) loads as itself. No compression is guessed from a name (there is none to read): a compressed file does not load.
+5. The worker connects in memory with extension autoload/autoinstall, community extensions and persistent secrets off, loads the tables, then sets `enable_external_access = false` and `lock_configuration = true`, so the query reaches no file (except the spill folder) and no network.
 
 Errors: argument checks; fence errors (`APP_FS_*`); `APP_SQL_TABLE_NAME`; `APP_SQL_ERROR` (DuckDB or refusal message, first line); `APP_SQL_STOPPED` (timeout, cancel, or stdout over 256 KiB; the worker is SIGKILLed); `APP_SQL_FAILED` (crash, e.g. OOM kill). Messages are scrubbed of host paths. On a crash one JSON line goes to stderr: `{"severity":"ERROR","component":"app-sql","event":"worker_failed",…}`.
 

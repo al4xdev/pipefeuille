@@ -78,6 +78,18 @@ AGENT_NAME = r"^[A-Za-z0-9][A-Za-z0-9_]*$"
 AgentName = Field(pattern=AGENT_NAME, max_length=64)
 PROCESS_ID = r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
 
+# `input` reaches app-agent as ONE argv string, json.dumps(input) (ASCII escapes), and Linux
+# caps one argument at 128 KiB (MAX_ARG_STRLEN): past it the exec fails (E2BIG). Refused at
+# /dispatch instead (413), with headroom for the NUL; the logic's adapter refuses the same
+# count before sending (backend_logic/_shared/agents/harness/contracts.py, MAX_INPUT_BYTES).
+MAX_INPUT_BYTES = 120_000
+
+
+def argv_input(value: dict[str, Any]) -> str:
+    """The input as app-agent receives it: the one encoding the cap counts."""
+    return json.dumps(value)
+
+
 # The public statuses; /status never shows another.
 STATUSES = ("queued", "running", "completed", "failed")
 
@@ -252,7 +264,7 @@ def send_to_dsh(process_id: str, request: DispatchRequest) -> subprocess.Popen[b
         # The ids are for the harness only: the model sees just `input`.
         env = {**os.environ, "APP_TENANT_ID": request.tenant_id}
         proc = subprocess.Popen(
-            [RUNNER, "run", request.agent_name, process_id, json.dumps(request.input)],
+            [RUNNER, "run", request.agent_name, process_id, argv_input(request.input)],
             stdin=subprocess.DEVNULL,
             stdout=out,
             stderr=subprocess.PIPE,
@@ -923,6 +935,8 @@ api = FastAPI(title="agent runtime (harness)", lifespan=lifespan)
 
 @api.post("/dispatch", status_code=202, response_model=DispatchResponse)
 def dispatch(request: DispatchRequest) -> DispatchResponse:
+    if len(argv_input(request.input)) > MAX_INPUT_BYTES:  # ASCII: characters are bytes
+        raise HTTPException(413, f"input over {MAX_INPUT_BYTES} bytes as JSON")
     process_id = str(uuid4())
     QUEUE.enqueue(process_id, request)
     # Queued is durable from here (Postgres): if starting fails now, tick() retries it.

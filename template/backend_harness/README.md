@@ -34,7 +34,7 @@ backend_harness/
   rename-prefix.sh        rename the `app` prefix (FILL-IN) everywhere, with a self-test
   runtime/                the platform layer every agent inherits
     profiles/app/         base dsh profile `app`: no dsh tools, no vendor text, no side calls, no telemetry
-    bin/app-agent.sh      one agent process: per-process workspace, `run` / `resume`, id checks
+    bin/app-agent.sh      one agent process: per-process workspace, `run` / `resume` / `check`, id, input and template-link checks
     bin/app-profiles.mjs  image build: one profile `app_<agent>` per agent (base + that agent's plugins)
     plugins/              dsh-plugin-app-limits (time/token limits), dsh-plugin-app-recovery (one retry, unexpected errors)
   agents/
@@ -123,7 +123,7 @@ Without the key, every model request fails with `MISSING_CREDENTIAL` before any 
 Each agent is a folder `agents/<name>/` (name `^[A-Za-z0-9][A-Za-z0-9_]*$`, no `-`):
 
 - `agent.yml` (outside `workspace/`, so the model never sees it): `description` (one or two sentences), `limits` (`max_run_seconds`, `max_tokens`: enforced in the run; `max_attempts`: the Postgres queue's reruns), `tools.shared` (opt-in tools of `agents/_shared/plugins`: `read`, `write`, `edit`, `list`, `trash`, `apply_patch`, `sql`), `tools.own` (every tool its own plugins register, with the logic's E1 `effects` and `repeat`), optional `model`. This side's parser: `agents/_shared/plugins/dsh-plugin-app-tools/agent.js`; a bad file fails the image build. The template's gates read it with two parsers of their own (`tests/support/harness_agents.py`, PyYAML in `tests/gates/test_agent_yml.py`), and all three are held to the verdicts of `tests/agent_yml_cases.json` (template-decisions E3).
-- `workspace/`: the read-only template every run's workspace links to; its `AGENTS.md` is the agent's instructions.
+- `workspace/`: the read-only template every run's workspace links to; its `AGENTS.md` is the agent's instructions. A link inside it may point only inside it: `app-agent check` refuses one that leaves (a host file, another tenant's workspace), at image build and on every run, since the fence lets the model read what a template entry points to. app-agent also refuses an input starting with `-` (the pinned dsh re-parses its last argument as a flag, even after `--`).
 - `plugins/` (optional): its own dsh plugins, inserted only into its profile `app_<name>`. A tool that ends the run is declared in the plugin's `package.json` (`"harness": {"ends_run": [...]}`) and writes the run's output itself (one JSON line on stdout), as `finalize_summary` does.
 
 Adding an agent: the folder above, then `tests/test.sh --build`, `tests/context.sh --check` (fails: no baseline yet), review the capture with the owner, `--update`.
@@ -132,7 +132,7 @@ Adding an agent: the folder above, then `tests/test.sh --build`, `tests/context.
 
 `server/server.py` (FastAPI, uvicorn; `python server.py`), on `APP_HARNESS_HOST:APP_HARNESS_PORT` (default `127.0.0.1:8081`, loopback):
 
-- `POST /dispatch {agent_name, tenant_id, input}` → `202 {status: "queued", process_id}`. Queues one `app-agent run <agent> <process_id> <input as JSON>`; at most `CAP` (20) run at once. `tenant_id` is trusted from the caller (backend to backend) and only separates workspaces and visibility; the model sees just `input`.
+- `POST /dispatch {agent_name, tenant_id, input}` → `202 {status: "queued", process_id}`; `413` when `input`, as app-agent receives it (`json.dumps`, ASCII escapes), is over `MAX_INPUT_BYTES` (120 000: one argv string, which Linux caps at 128 KiB), refused before it is queued; the logic's adapter counts the same way and refuses first. Queues one `app-agent run <agent> <process_id> <input as JSON>`; at most `CAP` (20) run at once. `tenant_id` is trusted from the caller (backend to backend) and only separates workspaces and visibility; the model sees just `input`.
 - `POST /status {tenant_id, process_id}` → `{status, process_id, output, reason, usage?}`; `status` is `queued | running | completed | failed`; `output` is the process's stdout once it ended; `reason` is `LIMIT_EXCEEDED`, `START_FAILED`, `ATTEMPTS_EXHAUSTED`, `RERUN_REFUSED` or null; `usage` (tokens summed from the run's dsh session log) is absent when unknown. Another tenant's process answers 404 like a missing one.
 - Exit codes: 0 completed; 75 failed `LIMIT_EXCEEDED` (never rerun); any other failed.
 - Queue: in memory by default (lost on restart, nothing rerun). With `APP_PG_DSN` (a libpq connection string), the table `app_harness.processes`, shared by instances: heartbeats, a reaper that requeues dead runs up to the agent's `max_attempts`, fenced writes. TLS, when a real database needs it, goes in the connection string.

@@ -13,6 +13,7 @@ import time
 from collections.abc import Iterator
 from compression import zstd
 from pathlib import Path
+from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
@@ -111,6 +112,21 @@ def test_another_tenants_process_answers_like_a_missing_one(harness: TestClient)
 )
 def test_ids_that_would_become_bad_paths_are_refused(harness: TestClient, body: dict[str, object]) -> None:
     assert harness.post("/dispatch", json=body).status_code == 422
+
+
+def test_an_input_past_the_argv_cap_is_refused_before_it_is_queued(harness: TestClient) -> None:
+    # Counted as app-agent receives it: a non-ASCII character is its six-byte \\u escape.
+    room = server.MAX_INPUT_BYTES - len(server.argv_input({"text": ""}))
+    fits: dict[str, Any] = {"text": "é" * (room // 6)}
+    over: dict[str, Any] = {"text": "é" * (room // 6 + 1)}
+    assert len(server.argv_input(fits)) <= server.MAX_INPUT_BYTES < len(server.argv_input(over))
+    body = {"agent_name": "summarizer", "tenant_id": TENANT}
+    assert harness.post("/dispatch", json=body | {"input": over}).status_code == 413
+    assert isinstance(server.QUEUE, server.MemoryQueue) and server.QUEUE.processes == {}
+    accepted = harness.post("/dispatch", json=body | {"input": fits})
+    assert accepted.status_code == 202
+    # Let it end here, so its runner's stderr lands in no later test's capture.
+    ended(harness, accepted.json()["process_id"])
 
 
 def test_a_runner_that_cannot_start_fails_the_run(harness: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:

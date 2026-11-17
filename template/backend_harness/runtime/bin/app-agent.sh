@@ -2,6 +2,7 @@
 # Shell entrypoint of one agent process:
 #   app-agent run    <agent_name> <process_id> <input>   new workspace, new session
 #   app-agent resume <process_id> <input>                next turn of that session
+#   app-agent check  <template_dir>                      no link of it leaves it (image build)
 # The server generates process_id (a uuid) and sets APP_TENANT_ID; local runs
 # pass both by hand. The tenant is env, not an argument, because it is the
 # server's to decide and resume must stay inside it.
@@ -20,7 +21,38 @@ export LC_ALL=C
 
 AGENTS=/opt/app/agents
 WORK=/tmp/app-work
-usage() { sed -n '3,4p' "$0" >&2; exit 2; }
+usage() { sed -n '3,5p' "$0" >&2; exit 2; }
+
+# A template's entries are linked into every workspace, and the fence lets the
+# model read what they point to; a link of the template that leaves it would hand
+# the model whatever it names (a host file, another tenant's workspace). So no
+# link may resolve outside the template, checked at image build and on every run.
+check_template() {
+  local root link target
+  root="$(realpath -e -- "$1")" || { echo "app-agent: no template: $1" >&2; exit 2; }
+  while IFS= read -r -d '' link; do
+    target="$(realpath -m -- "$link")"
+    case "$target" in
+      "$root"/*) ;;
+      *) echo "app-agent: ${link#"$root"/} in the template of $(basename "$(dirname "$root")") leaves it" >&2; exit 2 ;;
+    esac
+  done < <(find "$root" -type l -print0)
+}
+
+# The input becomes dsh's last argument, and dsh (pinned) re-parses it in the
+# booted app even after `--`: one starting with '-' would be read as a flag. The
+# server sends a JSON object, so this refuses only what it never sends.
+check_input() {
+  case "$1" in
+    -*) echo "app-agent: the input starts with '-'" >&2; exit 2 ;;
+  esac
+}
+
+if [ "${1:-}" = check ]; then
+  [ $# -eq 2 ] || usage
+  check_template "$2"
+  exit 0
+fi
 
 # The id becomes a path and a session folder name: a lowercase uuid, nothing else.
 check_id() {
@@ -82,6 +114,7 @@ case "${1:-}" in
     [ $# -eq 4 ] || usage
     name="$2" process_id="$3" input="$4"
     check_id "$process_id"
+    check_input "$input"
     # The name becomes a path too (the server's rule): letters, digits and '_',
     # not leading '_' (_shared), at most 64 (the session folder stays under the
     # 251 chars dsh keeps, uuid tail included).
@@ -97,6 +130,7 @@ case "${1:-}" in
       echo "app-agent: unknown agent: $name" >&2
       exit 2
     fi
+    check_template "$template"
     profile="$(profile_of "$name")" || exit 2
     load_agent "$name"
     workspace="$TENANT_WORK/$name/$process_id"
@@ -120,6 +154,7 @@ case "${1:-}" in
     [ $# -eq 3 ] || usage
     process_id="$2" input="$3"
     check_id "$process_id"
+    check_input "$input"
     # Looked up under the caller's tenant only: another tenant's process
     # answers exactly like a missing one.
     mapfile -t found < <(find_workspace "$process_id")
