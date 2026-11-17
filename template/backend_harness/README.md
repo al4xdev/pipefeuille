@@ -1,6 +1,6 @@
 # backend_harness: the agent runtime layer
 
-Agents run here as **separate processes** of the [dsh](https://www.npmjs.com/package/@deepseek-ai/dsh) agent runtime (pinned), one process per run, each in its own workspace, dispatched over HTTP by a small server. It is the **runtime** of the agents; what an agent is *for* (when to dispatch it, what its output means, how it is admitted) belongs to the logic (`backend_logic`), through a port adapter (see [Seams](#seams-for-the-logic-side)).
+Agents run here as **separate processes** of the [dsh](https://www.npmjs.com/package/@deepseek-ai/dsh) agent runtime (pinned), one process per run, each in its own workspace, dispatched over HTTP by a small server. It is the **runtime** of the agents; what an agent is *for* (when to dispatch it, what its output means, how it is admitted) belongs to the logic (`backend_logic`), through a port adapter (see [Connected to the logic](#connected-to-the-logic)).
 
 Generic by construction: no cloud, no company, no tenant-as-product. Docker is the only platform it assumes.
 
@@ -13,7 +13,7 @@ This folder is **not** a `backend_logic` package tree and does not follow the fo
 | Four modules per package, `run.py` door, `Pipe`/`Container` vocabulary, `def run` docstrings and the architecture graph | **No** | The server is one HTTP module (`server/server.py`); the rest is dsh plugins (JavaScript), shell and YAML. There is no pipeline to read top-down. The agents are still nodes of the logic's architecture graph (`agent`), read by the template's `tests/support/harness_agents.py` from their captures, `agent.yml` and the profile (template-decisions E3). |
 | Python 3.15, `lazy` imports, `disallow_any_expr`, the template's `pyproject.toml` | **No** | The server is its own uv project: `server/pyproject.toml`, `server/uv.lock`, `server/.python-version` (3.14, which `compression.zstd` needs to read dsh's session logs), its own venv. It parses JSON from dsh and from requests with the standard library and pydantic, which carry `Any`; containing that would mean a boundary package per call for no reader's benefit. |
 | Its own gates | **Yes, its own** | `server/pyproject.toml` configures ruff (same rule set as the template, line 120, py314) and strict mypy (without `disallow_any_expr`); pytest. `tests/test.sh` runs them, with the plugin tests and the rename self-test. |
-| No secrets in code or logs; private data never a fixture; mocks by default; a real model call needs explicit authorization | **Yes** | Same reasons as everywhere (guide §11, §15). See [Real model runs](#real-model-runs). |
+| No secrets in code or logs; private data never a fixture; mocks by default; a real model call needs explicit authorization | **Yes** | Same reasons as everywhere (guide §11, §15). See [Provider and real model runs](#provider-and-real-model-runs). |
 | Privacy before context; the model receives only what we put there | **Yes, enforced** | The profile disables everything the vendor runtime would add on its own, and `tests/context.sh --check` holds the exact context to reviewed baselines. |
 | Comments for decisions and constraints, not for what the code says | **Yes** | |
 | Dependency direction | **Yes**: `logic -> nothing`; `harness -> nothing` of ours; `services -> nothing` | The server imports neither `backend_logic` nor `http_adapter`. The logic reaches agents only through the adapter of its agent-runs port (`backend_logic/_shared/agents/harness/`), over HTTP. |
@@ -146,7 +146,7 @@ Adding an agent: the folder above, then `tests/test.sh --build`, `tests/context.
 | `APP_PG_DSN` | `docker.sh --pg` | set = Postgres queue; unset or empty = memory |
 | `APP_TENANT_ID` | the server, per run; `docker.sh` (`local`) | `^[A-Za-z0-9_-]+$`, at most 64: a workspace path segment |
 | `APP_LIMITS`, `APP_TOOLS` | `app-agent`, per run | the agent's limits and shared tools from `agent.yml`, read by the plugins |
-| `DEEPSEEK_API_KEY` | `docker.sh --model-key` only | the built-in provider's credential ([Real model runs](#real-model-runs)) |
+| `DEEPSEEK_API_KEY` | `docker.sh --model-key` only | the built-in provider's credential ([Provider and real model runs](#provider-and-real-model-runs)) |
 | `APP_TEST_PG` | you, for `server/tests/test_pg_queue.py` | a disposable database for the Postgres tests |
 
 ## Running it
