@@ -1,0 +1,12 @@
+{
+  "name": "dsh-plugin-app-telemetry-sql",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Developer dsh plugin: read-only SQL and schema over the app-telemetry DuckDB caches. Never part of the harness image or a product agent's profile.",
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./tools": "./tools.js"
+  }
+}

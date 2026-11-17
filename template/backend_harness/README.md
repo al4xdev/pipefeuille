@@ -64,7 +64,7 @@ Every harness name carries one prefix, `app`, which a new project renames once: 
 backend_harness/rename-prefix.sh myproj   # then: docker.sh build, tests/test.sh, context.sh --update with the owner's OK
 ```
 
-`rename-prefix.sh --self-test` (run by `tests/test.sh`) renames a scratch copy and fails if any token survives, so a new name that breaks the token form is caught. dsh's own package `dsh-app-boot` is the one exception it keeps.
+`rename-prefix.sh --self-test` (run by `tests/test.sh`) renames a scratch copy and fails if any token survives, so a new name that breaks the token form is caught. dsh's own package `dsh-app-boot` is the one exception it keeps. With no `DIR`, it also renames the developer telemetry tool `../tools/telemetry` (below), which reads this harness's names (`app-harness-local`, `/tmp/app-work`) and carries the same prefix (`app-telemetry`); the self-test copies and checks both, the tool's lockfile included.
 
 ## Pinned dsh, plugins in the repo
 
@@ -158,6 +158,10 @@ backend_harness/tests/e2e.sh --pg            # the same on the Postgres queue (i
 ```
 
 `docker.sh serve` publishes the server on the host's loopback only (inside the container it listens on all interfaces so the port can be published).
+
+## Reading what agents did: `tools/telemetry` (developer only)
+
+The dsh session logs of the runs (turns, model requests, tool calls, tokens, timings, errors) are read with [`tools/telemetry`](../tools/telemetry/README.md): `node tools/telemetry/bin/app-telemetry.js` (after `npm ci` there) opens a terminal UI on the sessions of the running `app-harness-local` container (`--local`) or a host copy (`--dir PATH`, e.g. `docker.sh SESSIONS=PATH`), and `sessions`, `trajectory`, `sync`, `schema` and `sql` answer as JSON lines for an agent. Its dsh plugin `dsh-plugin-app-telemetry-sql` gives read-only `telemetry_sql`/`telemetry_schema` tools to the **developer's** own dsh session. It is a developer tool: nothing in this folder that reaches an agent (image, profiles, `agent.yml`, `docker.sh`) may name it, held by `tools/telemetry/test/placement.test.js`; the image's build context is this folder, so the tool cannot enter it by a `COPY` either. Don't decode the zstd logs by hand: they are multi-frame.
 
 ## Services
 
