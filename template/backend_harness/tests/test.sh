@@ -5,7 +5,9 @@
 #      the generated app_<name> profiles as the image installs them (imports by
 #      package name resolve only in /opt/dsh/node_modules);
 #   2. the harness server's own gates (ruff, ruff format, mypy, pytest), on the
-#      host with its own uv project (backend_harness/server);
+#      host with its own uv project (backend_harness/server), and the sql tool's
+#      worker, which runs on that project's venv: its strict mypy, and the template
+#      root's ruff (the worker sits outside server/, so the root config is its own);
 #   3. the prefix rename's self-test (rename-prefix.sh on a scratch copy).
 #   backend_harness/tests/test.sh [--build] [node --test args...]
 # No model is called and no credential is read. The context gate is apart:
@@ -36,6 +38,12 @@ echo "test: 2/3 harness server (its own project: ruff, format, mypy, pytest)" >&
   uv run --frozen ruff format --check .
   uv run --frozen mypy .
   uv run --frozen pytest -q
+  uv run --frozen mypy "$HARNESS/agents/_shared/plugins/dsh-plugin-app-sql/worker.py"
+)
+(
+  cd "$HARNESS/.."
+  uv run --frozen ruff check backend_harness/agents
+  uv run --frozen ruff format --check backend_harness/agents
 )
 
 echo "test: 3/3 prefix rename (scratch copy)" >&2

@@ -13,6 +13,10 @@ version = "0.1.0"
 description = "HTTP entrypoint of the agent runtime (dsh agents as processes)"
 requires-python = ">=3.14"
 dependencies = [
+    # The shared sql tool's worker (agents/_shared/plugins/dsh-plugin-app-sql/worker.py)
+    # runs on this venv: one Python project for the runtime layer. Pinned: the worker's
+    # lock-down is verified against this release by the sql tool's tests.
+    "duckdb==2.0.0",
     "fastapi>=0.115",
     "psycopg[binary,pool]>=3.2",
     "uvicorn>=0.32",

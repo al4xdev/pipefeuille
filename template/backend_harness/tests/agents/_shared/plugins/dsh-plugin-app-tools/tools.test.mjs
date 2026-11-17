@@ -21,9 +21,11 @@ const HEAD = `description: An agent.\n${LIMITS}`
 test('the names come from the shared plugins\' package.json (harness.tools)', async () => {
   const declared = async name => JSON.parse(await readFile(fileURLToPath(new URL(`../${name}/package.json`, plugin)), 'utf8')).harness.tools
   assert.deepEqual(toolsOf('dsh-plugin-app-fs'), await declared('dsh-plugin-app-fs'))
+  assert.deepEqual(toolsOf('dsh-plugin-app-sql'), await declared('dsh-plugin-app-sql'))
   // Today's set and order; a new opt-in tool shows up here first.
-  assert.deepEqual(KNOWN, ['read', 'write', 'edit', 'list', 'trash', 'apply_patch'])
+  assert.deepEqual(KNOWN, ['read', 'write', 'edit', 'list', 'trash', 'apply_patch', 'sql'])
   assert.equal(pluginOf('apply_patch'), 'dsh-plugin-app-fs')
+  assert.equal(pluginOf('sql'), 'dsh-plugin-app-sql')
   assert.equal(pluginOf('finalize_summary'), undefined)
   assert.deepEqual(toolsOf('dsh-plugin-app-summarizer'), [])
 })
