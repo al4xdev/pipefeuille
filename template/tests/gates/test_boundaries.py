@@ -4,9 +4,11 @@
   `[project] dependencies` of pyproject.toml, extras included (support/boundaries.py reads them
   from the installed metadata). A library that is only installed (a transitive dependency, a
   dev tool such as httpx) is not granted: declaring it is what grants the import.
-- Nothing in that code can load a module by a string: it imports none of the loader modules
-  (LOADER_MODULES, submodules included), touches no `sys.modules`, and names none of the
-  builtins that reach the import machinery or run a string (LOADER_NAMES). Every library is a
+- Nothing in that code can load a module by a string: it imports and uses none of LOADERS
+  (modules with their submodules, and single objects), touches no `sys.modules`, and names
+  none of the builtins that reach the import machinery or run a string (LOADER_NAMES).
+  LOADERS is audited: every module in reach that calls the import machinery is in it or in
+  NOT_A_LOADER, with its reason. Every library is a
   plain import that mypy sees, typed by the library or by a stub. A module loaded by string
   hides a rename from the checker and its Any from disallow_any_expr, so there is no allowlist
   and no log token for it. The modules are forbidden, not their call names, because a call
@@ -23,90 +25,227 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
-from boundaries import declared_distributions, declared_import_names, import_names, stub_drift
+from boundaries import (
+    declared_distributions,
+    declared_import_names,
+    distribution_sources,
+    import_names,
+    loader_candidates,
+    project_dependencies,
+    stdlib_sources,
+    stub_drift,
+    tree_sources,
+)
 
 ROOT = Path(__file__).resolve().parents[2]
 SUPPORT = ROOT / "tests" / "support"
 # The code the gate reads, and so the first-party import names. A second adapter
 # (cli_adapter/) is listed here too (template-decisions D2).
 CODE = ("backend_logic", "http_adapter")
-# Modules that load code from a string: importing any of them, or a submodule, is the
-# violation. `uvicorn.importer` is the declared server's own `import_from_string`; another
-# declared library with such a helper is added here by the pipefeuille (RUNBOOK, task C).
-LOADER_MODULES = (
-    "importlib",
-    "pydoc",
-    "runpy",
-    "pkgutil",
-    "zipimport",
-    "builtins",
-    "uvicorn.importer",
-)
+# What loads a module, or runs code, from a string: a module (every submodule included) or one
+# object of a module. Importing it, or using it through any name bound to it, is the violation.
+# Closed and reviewed: test_every_loader_in_reach_is_listed fails when the standard library or
+# a template dependency calls the import machinery in a module listed neither here nor in
+# NOT_A_LOADER. A new entry is a change to the pipefeuille (RUNBOOK, task C), never a project's.
+LOADERS = {
+    "importlib": "the import machinery itself (util, machinery, metadata, resources)",
+    "_frozen_importlib": "importlib's bootstrap, under its private name",
+    "_frozen_importlib_external": "importlib's path finders, under their private name",
+    "_imp": "the interpreter's import primitives",
+    "pydoc": "pydoc.locate imports any dotted name",
+    "runpy": "runs a module or a file by name",
+    "pkgutil": "resolve_name, iter_modules + import, get_data by package name",
+    "zipimport": "loads modules from an archive",
+    "builtins": "builtins.__import__ and exec under an attribute",
+    "modulefinder": "finds and loads modules by name",
+    "doctest": "imports the module it tests by name",
+    "unittest": "loads tests and patch targets (mock.patch) by dotted name",
+    "logging.config": "dictConfig and fileConfig import the factories their data names",
+    "pickle": "unpickling imports the module of every class the data names",
+    "_pickle": "pickle's accelerator, the same unpickling",
+    "shelve": "stores values with pickle",
+    "multiprocessing.forkserver": "set_forkserver_preload imports the modules it is given",
+    "multiprocessing.set_forkserver_preload": "the same, from the package",
+    "optparse": "Values.read_module imports a module by name",
+    "xml.dom.domreg": "getDOMImplementation imports the implementation it is given",
+    "xml.dom.getDOMImplementation": "the same, from the package",
+    "xml.sax.make_parser": "imports the parser modules its argument names",
+    "turtle": "imports the modules its configuration names",
+    "profiling": "profiles a module or a script by name",
+    "profile": "runs a code string",
+    "cProfile": "runs a code string",
+    "timeit": "compiles and runs code strings",
+    "trace": "runs a code string or a module",
+    "pdb": "runs a code string or a module",
+    "bdb": "runs a code string",
+    "code": "an interpreter for code strings",
+    "codeop": "compiles code strings for an interpreter",
+    "uvicorn": "run, Config.load, Server and main import the app from a 'module:attr' string",
+    "watchfiles.run": "run_process and arun_process import the target a string names",
+    "watchfiles.run_process": "the same, from the package",
+    "watchfiles.arun_process": "the same, from the package",
+    "watchfiles.cli": "runs watchfiles.run on a target string",
+    "websockets.imports": "lazy_import imports the names a mapping lists",
+    "websockets.lazy_import": "the same, from the package",
+    "yaml.constructor": "!!python/name and !!python/object tags import the modules they name",
+    "yaml.loader": "Loader and UnsafeLoader use that constructor",
+    "yaml.cyaml": "CLoader and CUnsafeLoader use that constructor",
+    "yaml.Loader": "the unsafe constructor, from the package",
+    "yaml.UnsafeLoader": "the unsafe constructor, from the package",
+    "yaml.CLoader": "the unsafe constructor, from the package",
+    "yaml.CUnsafeLoader": "the unsafe constructor, from the package",
+    "yaml.unsafe_load": "the unsafe constructor, from the package",
+    "yaml.unsafe_load_all": "the unsafe constructor, from the package",
+}
+# Modules in reach of the code that call the import machinery, but never on a name the caller or
+# the data chooses: each with the reason it was reviewed and not listed in LOADERS.
+NOT_A_LOADER = {
+    "ctypes": "imports the fixed comtypes.server.inprocserver, for Windows COM only",
+    "dbm": "imports one of its own backends, from a fixed list",
+    "encodings": "imports encodings.<codec>: only modules of its own package",
+    "inspect": "only its command line (_main, python -m inspect) imports by name",
+    "sysconfig": "imports its own _sysconfigdata build module",
+    "traceback": "imports the module an ImportError already names, to suggest a spelling",
+    "xml.sax": "loads by name only in make_parser, which is in LOADERS",
+    "fastapi.responses": "imports the optional ujson and orjson, fixed names",
+    "dotenv.main": "imports __main__, a fixed name, to find the caller's directory",
+}
+# The distributions whose modules LOADERS and NOT_A_LOADER were reviewed against: the
+# template's own dependencies. A project's added dependency is not audited (template-decisions
+# D9, "Does not prove"): the tables live in this file, which a project never edits.
+AUDITED_DISTRIBUTIONS = {
+    "fastapi",
+    "uvicorn",
+    "httptools",
+    "python-dotenv",
+    "pyyaml",
+    "watchfiles",
+    "websockets",
+}
 # Builtins that reach the import machinery or run a string, available without any import.
 LOADER_NAMES = {"__import__", "__builtins__", "__loader__", "__spec__", "exec", "eval"}
-# Loader functions reached as an attribute of something the scanner cannot resolve.
-LOADER_ATTRIBUTES = {"__import__", "import_module", "import_from_string"}
+# Loader functions and methods reached as an attribute of something the scanner cannot
+# resolve (an object, a parameter): their names are reserved in the code.
+LOADER_ATTRIBUTES = {
+    "__import__",
+    "import_module",
+    "import_from_string",
+    "import_string",
+    "lazy_import",
+    "find_spec",
+    "module_from_spec",
+    "spec_from_file_location",
+    "spec_from_loader",
+    "exec_module",
+    "load_module",
+    "read_module",
+    "set_forkserver_preload",
+    "find_class",
+}
 
 
 @dataclass(frozen=True, order=True)
 class LoaderUse:
     line: int
-    what: str  # the loader module, `sys.modules`, or the builtin or attribute name
+    what: str  # the LOADERS entry, `sys.modules`, or the builtin or attribute name
 
 
-def dotted(node: ast.expr, aliases: dict[str, str]) -> str | None:
-    """`u.importer.x` as `uvicorn.importer.x` when `u` is bound by an import; else None."""
+def dotted(node: ast.expr, bindings: dict[str, set[str]]) -> set[str]:
+    """Every dotted name `n.a.b` can stand for, given every value each name was bound to."""
     parts: list[str] = []
-    while isinstance(node, ast.Attribute):
-        parts.append(node.attr)
-        node = node.value
-    if not isinstance(node, ast.Name) or node.id not in aliases:
-        return None
-    return ".".join([aliases[node.id], *reversed(parts)])
+    while isinstance(node, (ast.Attribute, ast.NamedExpr)):
+        if isinstance(node, ast.Attribute):
+            parts.append(node.attr)
+        node = node.value  # `(x := yaml).load` stands for `yaml.load`
+    if not isinstance(node, ast.Name):
+        return set()
+    suffix = "".join(f".{part}" for part in reversed(parts))
+    return {f"{bound}{suffix}" for bound in bindings.get(node.id, set())}
 
 
 def loader_of(name: str) -> str | None:
-    """The loader module a dotted name is, or lies under; `sys.modules` at any depth."""
-    for module in LOADER_MODULES:
-        if name == module or name.startswith(f"{module}."):
-            return module
+    """The LOADERS entry a dotted name is, or lies under; `sys.modules` at any depth."""
+    for path in LOADERS:
+        if name == path or name.startswith(f"{path}."):
+            return path
     parts = name.split(".")
     if any(pair == ("sys", "modules") for pair in zip(parts, parts[1:], strict=False)):
         return "sys.modules"
     return None
 
 
-def loader_uses(source: str) -> list[LoaderUse]:
-    """Every import of a loader module, every use of a name bound to one (resolved through
-    import aliases), every `sys.modules`, and every loader builtin, at any depth."""
-    tree = ast.parse(source)
-    aliases: dict[str, str] = {}
-    found: set[LoaderUse] = set()
+def bound_names(tree: ast.Module) -> dict[str, set[str]]:
+    """Every dotted value each name was ever bound to, never only the last: imports, then
+    `x = y`, `x: T = y`, `(x := y)` and parameter defaults (`def f(m=sys)`) propagated to a
+    fixed point. A name rebound later keeps its earlier bindings, so shadowing hides nothing."""
+    bindings: dict[str, set[str]] = {}
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             for alias in node.names:
-                aliases[alias.asname or alias.name.split(".")[0]] = (
-                    alias.name if alias.asname else alias.name.split(".")[0]
-                )
-                if (module := loader_of(alias.name)) is not None:
-                    found.add(LoaderUse(node.lineno, module))
+                name = alias.name if alias.asname else alias.name.split(".")[0]
+                bindings.setdefault(alias.asname or name, set()).add(name)
         elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
             for alias in node.names:
                 full = f"{node.module}.{alias.name}"
-                aliases[alias.asname or alias.name] = full
-                if (module := loader_of(node.module) or loader_of(full)) is not None:
-                    found.add(LoaderUse(node.lineno, module))
+                bindings.setdefault(alias.asname or alias.name, set()).add(full)
+    pairs: list[tuple[str, ast.expr]] = []
     for node in ast.walk(tree):
-        if isinstance(node, ast.Name) and node.id in LOADER_NAMES:
+        if isinstance(node, ast.Assign):
+            pairs += [(t.id, node.value) for t in node.targets if isinstance(t, ast.Name)]
+        elif isinstance(node, (ast.AnnAssign, ast.NamedExpr)) and node.value is not None:
+            if isinstance(node.target, ast.Name):
+                pairs.append((node.target.id, node.value))
+        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
+            arguments = node.args
+            positional = [*arguments.posonlyargs, *arguments.args]
+            with_defaults = positional[len(positional) - len(arguments.defaults) :]
+            pairs += [(a.arg, d) for a, d in zip(with_defaults, arguments.defaults, strict=True)]
+            pairs += [
+                (a.arg, d)
+                for a, d in zip(arguments.kwonlyargs, arguments.kw_defaults, strict=True)
+                if d is not None
+            ]
+    changed = True
+    while changed:
+        changed = False
+        for name, value in pairs:
+            values = dotted(value, bindings)
+            if not values <= bindings.get(name, set()):
+                bindings.setdefault(name, set()).update(values)
+                changed = True
+    return bindings
+
+
+def loader_uses(source: str) -> list[LoaderUse]:
+    """Every import of a LOADERS entry, every use of a name that was ever bound to one, every
+    `sys.modules`, and every loader builtin or attribute name, at any depth."""
+    tree = ast.parse(source)
+    bindings = bound_names(tree)
+    found: set[LoaderUse] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            found |= {
+                LoaderUse(node.lineno, path)
+                for alias in node.names
+                if (path := loader_of(alias.name)) is not None
+            }
+        elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+            found |= {
+                LoaderUse(node.lineno, path)
+                for alias in node.names
+                if (path := loader_of(node.module) or loader_of(f"{node.module}.{alias.name}"))
+                is not None
+            }
+        elif isinstance(node, ast.Name) and node.id in LOADER_NAMES:
             found.add(LoaderUse(node.lineno, node.id))
-        elif isinstance(node, (ast.Name, ast.Attribute)) and isinstance(node.ctx, ast.Load):
-            name = dotted(node, aliases)
-            module = loader_of(name) if name is not None else None
-            if module is not None:
-                found.add(LoaderUse(node.lineno, module))
-            elif (
-                name is None and isinstance(node, ast.Attribute) and node.attr in LOADER_ATTRIBUTES
-            ):
+        if isinstance(node, (ast.Name, ast.Attribute)) and isinstance(node.ctx, ast.Load):
+            names = dotted(node, bindings)
+            found |= {
+                LoaderUse(node.lineno, path)
+                for name in names
+                if (path := loader_of(name)) is not None
+            }
+            if not names and isinstance(node, ast.Attribute) and node.attr in LOADER_ATTRIBUTES:
                 found.add(LoaderUse(node.lineno, node.attr))
     return sorted(found)
 
@@ -144,32 +283,45 @@ def stub_module(stub: Path) -> str:
 
 
 def test_loader_scanner_sees_every_form() -> None:
-    # Guards the guard: each line is a way to load a module by a string. A scanner for
-    # `importlib.import_module(` alone saw two of them.
+    # Guards the guard: each flagged line is a way to load a module by a string; the last line
+    # holds uses that are not one (sys.argv, os.path, yaml.safe_load, an object's own exec or
+    # modules). Line 14 rebinds `sys`: the earlier binding still counts on lines 19-24, through
+    # an assignment (21), a walrus (23) and a parameter default (15, 24).
     source = (
         "import importlib\n"
         "from importlib import import_module as load\n"
         "lazy from importlib.util import find_spec, module_from_spec\n"
         "import pydoc, runpy as r\n"
         "import uvicorn\n"
-        "from uvicorn import importer\n"
         "import sys\n"
         "from sys import modules\n"
         "import os\n"
-        "def f(name, holder):\n"
+        "import yaml\n"
+        "import websockets\n"
+        "from watchfiles import run_process\n"
+        "import _frozen_importlib\n"
+        "import multiprocessing as mp\n"
+        "from http_adapter import application as sys\n"
+        "def f(name, holder, m=sys):\n"
         "    getattr(importlib, 'import_module')(name)\n"
         "    pydoc.locate('httpx.AsyncClient')\n"
-        "    uvicorn.importer.import_from_string('starlette.requests:Request')\n"
+        "    uvicorn.Config(app='pkg:attr').load()\n"
         "    sys.modules['starlette.requests']\n"
         "    os.sys.modules\n"
+        "    runtime = sys\n"
+        "    runtime.modules\n"
+        "    (alias := yaml).unsafe_load(name)\n"
+        "    m.modules\n"
+        "    websockets.lazy_import(globals(), {})\n"
+        "    run_process('.', target='pkg.main')\n"
+        "    mp.set_forkserver_preload([name])\n"
+        "    holder.read_module(name)\n"
         "    __import__('b')\n"
-        "    __builtins__\n"
         "    exec('import httpx')\n"
-        "    eval(name)\n"
-        "    holder.import_module(name)\n"
         "    r.run_module(name)\n"
-        "text = \"importlib.import_module('d')\"  # a string is not a use\n"
-        "print(sys.argv, os.path.sep, holder_modules := 1)\n"
+        "text = \"importlib.import_module('d')\"\n"
+        "print(sys.argv, os.path.sep, yaml.safe_load(text), websockets.connect,"
+        " holder.exec(), holder.modules)\n"
     )
     assert loader_uses(source) == [
         LoaderUse(1, "importlib"),
@@ -177,19 +329,25 @@ def test_loader_scanner_sees_every_form() -> None:
         LoaderUse(3, "importlib"),
         LoaderUse(4, "pydoc"),
         LoaderUse(4, "runpy"),
-        LoaderUse(6, "uvicorn.importer"),
-        LoaderUse(8, "sys.modules"),
-        LoaderUse(11, "importlib"),
-        LoaderUse(12, "pydoc"),
-        LoaderUse(13, "uvicorn.importer"),
-        LoaderUse(14, "sys.modules"),
-        LoaderUse(15, "sys.modules"),
-        LoaderUse(16, "__import__"),
-        LoaderUse(17, "__builtins__"),
-        LoaderUse(18, "exec"),
-        LoaderUse(19, "eval"),
-        LoaderUse(20, "import_module"),
-        LoaderUse(21, "runpy"),
+        LoaderUse(5, "uvicorn"),
+        LoaderUse(7, "sys.modules"),
+        LoaderUse(11, "watchfiles.run_process"),
+        LoaderUse(12, "_frozen_importlib"),
+        LoaderUse(16, "importlib"),
+        LoaderUse(17, "pydoc"),
+        LoaderUse(18, "uvicorn"),
+        LoaderUse(19, "sys.modules"),
+        LoaderUse(20, "sys.modules"),
+        LoaderUse(22, "sys.modules"),
+        LoaderUse(23, "yaml.unsafe_load"),
+        LoaderUse(24, "sys.modules"),
+        LoaderUse(25, "websockets.lazy_import"),
+        LoaderUse(26, "watchfiles.run_process"),
+        LoaderUse(27, "multiprocessing.set_forkserver_preload"),
+        LoaderUse(28, "read_module"),
+        LoaderUse(29, "__import__"),
+        LoaderUse(30, "exec"),
+        LoaderUse(31, "runpy"),
     ]
 
 
@@ -411,9 +569,94 @@ def test_stub_checker_reports_every_drift(tmp_path: Path, monkeypatch: pytest.Mo
         "stub_target.Thing.fetch: is a function in the library; declare it with def",
         "stub_target.Thing: line 14 is not a method or annotated attribute",
     ]
+    # __all__ in every form: whatever it lists is public, a plain import included.
+    every_all = (
+        "from httpx import AsyncClient\n"
+        "__all__: list[str] = ['Thing', 'AsyncClient']\n"
+        "__all__ += ['ghost_plus']\n"
+        "__all__.extend(['ghost_extend'])\n"
+        "__all__.append('ghost_append')\n"
+        "__all__.remove('Thing')\n"
+        "__all__ = [name for name in dir()]\n"
+    )
+    assert stub_drift(every_all, "stub_target") == [
+        "stub_target.AsyncClient: listed in __all__, not in the library",
+        "stub_target.ghost_plus: listed in __all__, not in the library",
+        "stub_target.ghost_extend: listed in __all__, not in the library",
+        "stub_target.ghost_append: listed in __all__, not in the library",
+        "stub_target: line 6 sets __all__ in a form not read",
+        "stub_target: line 7 sets __all__ in a form not read",
+    ]
+    # A default on one side only: the library's (ordered: b=1, c=2) or the stub's (needs).
+    defaults = (
+        "def ordered(a: int, b: int, *, c: int) -> None: ...\n"
+        "def needs(a: int, b: int = ...) -> None: ...\n"
+    )
+    assert stub_drift(defaults, "stub_target") == [
+        "stub_target.ordered: b has a default in the library, not in the stub",
+        "stub_target.ordered: c has a default in the library, not in the stub",
+        "stub_target.needs: b has a default in the stub, not in the library",
+    ]
     assert stub_drift("", "no_such_module_for_the_stub_checker") == [
         "no_such_module_for_the_stub_checker: not installed"
     ]
+
+
+def test_loader_audit_finds_every_caller_of_the_import_machinery(tmp_path: Path) -> None:
+    # Guards the audit: a module is a candidate when its own source calls the import machinery
+    # in any form; private modules, private packages and non-library folders are skipped, and a
+    # name in a string or a comment is not a call.
+    files = {
+        "lib/clean.py": "import os\nos.getcwd()\n",
+        "lib/loads.py": "import importlib\nimportlib.import_module(name)\n",
+        "lib/builtin.py": "def f(n):\n    return __import__(n)\n",
+        "lib/spec.py": "from importlib import util\nutil.find_spec(n)\n",
+        "lib/exec.py": "spec.loader.exec_module(module)\n",
+        "lib/sub/__init__.py": "m = load_module(n)\n",
+        "lib/text.py": "doc = 'importlib.import_module(x)'  # import_module(y)\n",
+        "lib/_private.py": "__import__(n)\n",
+        "lib/_hidden/inner.py": "__import__(n)\n",
+        "test/case.py": "__import__(n)\n",
+    }
+    for relative, text in files.items():
+        (tmp_path / relative).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / relative).write_text(text, encoding="utf-8")
+    sources = tree_sources(tmp_path)
+    assert [module for module, _ in sources] == [
+        "lib.builtin",
+        "lib.clean",
+        "lib.exec",
+        "lib.loads",
+        "lib.spec",
+        "lib.sub",
+        "lib.text",
+    ]
+    assert loader_candidates(sources) == [
+        "lib.builtin",
+        "lib.exec",
+        "lib.loads",
+        "lib.spec",
+        "lib.sub",
+    ]
+
+
+def test_every_loader_in_reach_is_listed() -> None:
+    # A dependency upgrade or a Python upgrade that brings a new loader into reach of the code
+    # turns this red until the pipefeuille reviews it into LOADERS or NOT_A_LOADER.
+    audited = (
+        declared_distributions(project_dependencies(ROOT / "pyproject.toml"))
+        & AUDITED_DISTRIBUTIONS
+    )
+    candidates = loader_candidates(stdlib_sources() + distribution_sources(audited))
+    # An empty audit would pass by reading nothing; the template's tree has 31 candidates.
+    assert len(candidates) >= 20, f"the audit read only {len(candidates)} candidate(s)"
+    unlisted = [
+        module for module in candidates if loader_of(module) is None and module not in NOT_A_LOADER
+    ]
+    assert not unlisted, (
+        "calls the import machinery and is reviewed in neither LOADERS nor NOT_A_LOADER of"
+        f" tests/gates/test_boundaries.py (template-decisions D9): {unlisted}"
+    )
 
 
 def test_no_module_is_loaded_by_name() -> None:
