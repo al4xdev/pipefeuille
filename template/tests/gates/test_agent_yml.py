@@ -28,7 +28,7 @@ Every real agent.yml passes all three, to the same values. backend_harness/tests
 agent_yml_cases.json pins each reader's verdict on every good and bad case, and says why where
 one differs by design; the Python readers are held to it here, agent.js in the image
 (backend_harness/tests/test.sh). The E1 values come from architecture.py, never copied.
-Template-decisions D10.
+Template-decisions E3.
 """
 
 import json
@@ -256,6 +256,8 @@ class Case:
 
 
 def read_cases() -> list[Case]:
+    if not HARNESS.is_dir():
+        return []  # a project without the runtime layer has no agent.yml to read
     document: object = json.loads(CASES.read_text(encoding="utf-8"))
     root = text_keys(document)
     raw = root.get("cases") if root is not None else None
@@ -293,6 +295,8 @@ CASE_LIST = read_cases()
 
 
 def agents() -> list[Path]:
+    if not AGENTS.is_dir():
+        return []
     return sorted(path for path in AGENTS.iterdir() if (path / "workspace").is_dir())
 
 
@@ -309,9 +313,10 @@ def captured(agent: Path) -> set[str]:
 
 
 def test_there_is_something_to_check() -> None:
-    assert "summarizer" in {path.name for path in AGENT_DIRS}
     assert KNOWN_PROBLEMS == []
-    assert set(KNOWN) >= {"read", "write", "edit", "list", "trash", "apply_patch", "sql"}
+    if HARNESS.is_dir():
+        # The runtime layer ships with at least one agent, and every reader's cases.
+        assert AGENT_DIRS and CASE_LIST and KNOWN
 
 
 @pytest.mark.parametrize("agent", AGENT_DIRS, ids=[path.name for path in AGENT_DIRS])

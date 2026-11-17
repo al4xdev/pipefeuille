@@ -32,9 +32,20 @@ You are the **orchestrator model** (frontier model). You build the structure; im
 
    If any gate fails right after the copy, stop and report: the template is broken, not the project.
 
+   With Docker, confirm the agent runtime layer too (offline: no model key, no network in the tests):
+
+   ```bash
+   backend_harness/tests/test.sh --build && backend_harness/tests/context.sh --check && backend_harness/tests/e2e.sh
+   ```
+
 2. **Read, in this order:** `<destination>/AGENTS.md` and then [`docs/design/reading-order.md`](template/docs/design/reading-order.md), on the orchestrator track. Do not skip `template-decisions.md`: it explains why each rule exists and keeps you from "simplifying" one of them.
 
 3. **Wave 0, with the owner.** Rename `name` in `pyproject.toml`. The `<!-- FILL IN -->` sections of `AGENTS.md` belong to the owner: project, invariants, provider and model, critics and delegation, authorizations. Ask for whatever is missing; never invent an answer. Whatever the owner leaves open stays marked that way in the file itself.
+
+   **The agent runtime layer** (`backend_harness/`, guide §11.2), if the project keeps agents (otherwise delete `backend_harness/`, `backend_logic/_shared/agents/`, `notes/summarize/`, `notes/summary/` and their routes and tests with the example domain):
+   - **Rename the harness prefix** `app` to the project's own short token, once, on a clean tree: `backend_harness/rename-prefix.sh --self-test`, then `backend_harness/rename-prefix.sh <prefix>`. It renames the profile, the runner, the plugins, the env vars and the image name; the root gates read the prefix from `runtime/profiles/`, so none changes.
+   - **Capture the baselines with the owner.** The rename changes what the model receives (the profile name is in every capture), so `context.sh --check` fails on purpose. Show the owner the diff and where it comes from; only after the owner says yes, `context.sh --update`, and commit the baselines with the rename. Never accept a baseline on your own, now or later.
+   - The provider is the profile's built-in default with its telemetry and side calls off; another provider is an adapter plugin in `backend_harness/runtime/plugins/`, decided by the owner. A real model run needs the credential **and** the owner's written authorization in `AGENTS.md`.
 
 4. **Waves 1 to 5:** follow [`construction.md`](template/docs/design/construction.md). In short:
    - survey use cases, products, effects and authorities;
@@ -74,7 +85,7 @@ Changing the pipefeuille changes every project born from it afterwards. Therefor
    - `reading-order.md` and the READMEs, if the map changed.
 3. **Every mechanical rule gets a gate, and every gate gets a self-test.** The self-test runs the scanner against a synthetic source or tree that violates the rule and checks the exact list of violations. A gate without a self-test can pass empty.
 4. **Measure before adopting.** When there is doubt whether a rule scales, measure on a real codebase and record the number in `template-decisions.md`, without naming the originating project.
-5. **Close:** the four gates green inside `template/`; no broken markdown links; and no mention of an old path, searching for the names you just changed.
+5. **Close:** the four gates green inside `template/`; after a change under `template/backend_harness/`, its own gates too (`tests/test.sh`, `tests/context.sh --check`, `tests/context-selftest.sh`, `tests/e2e.sh`; pass `IMAGE=app-harness:<branch>` when several checkouts share the Docker host); no broken markdown links; and no mention of an old path, searching for the names you just changed.
 
    ```bash
    cd template

@@ -75,11 +75,15 @@ backend_logic/
 │   │   │   └── validate/   # decode and encode use it
 │   │   ├── decode/
 │   │   └── encode/
+│   ├── agents/         # grouping: the agent-runs port (AgentRuns, Submission, Observation)
+│   │   └── harness/    # its adapter: the AGENTS table and the harness server's HTTP client
 │   └── note_name/      # name authority: notes and roles use it
-├── notes/              # family: PrepareResources | ListNotes | SaveNote
+├── notes/              # family: PrepareResources | ListNotes | SaveNote | DispatchSummary | ReadSummary
 │   ├── apps/           # catalogue of declarations: data, no Python
 │   │   └── list_notes/ # app: exactly app.toml, which binds use_case = "notes/list"
 │   ├── _shared/        # used by more than one process of notes
+│   │   ├── record/     # grouping: the stored note record's operations
+│   │   │   └── decode/ # save reads its predecessor, summarize the note it hands over
 │   │   └── storage/    # grouping: contracts.py with FileStore
 │   │       ├── _shared/
 │   │       │   └── path/   # read, write and scan use it
@@ -89,9 +93,10 @@ backend_logic/
 │   │       └── lock/
 │   ├── prepare/        # lifetime resources: store, locks, clock
 │   ├── list/
-│   └── save/
-│       ├── decode/     # only save reads the old document → inside save
-│       └── encode/     # only save writes → inside save
+│   ├── save/
+│   │   └── encode/     # only save writes → inside save
+│   ├── summarize/      # hands a stored note to an agent (the agent-runs port)
+│   └── summary/        # reads the agent's answer back and admits it
 └── roles/              # family: LLM roles
     ├── summarizer/
     └── digest/
@@ -305,6 +310,8 @@ uv run python tests/support/architecture.py --html .dumps/architecture.html # pa
 Each package comes with the **steps of its `run`**, in the order they run: the Pipe methods of the chain and the direct `<alias>.run(...)` calls, inside the frames the code has (lock, `if`/`else`, `match`/`case`, loop, `TaskGroup`, `try`), each step with the packages it calls (a method's calls are read from `pipeline.py`, following `self.<method>` and local helpers). A call is marked `per-item` when it repeats over a collection — in a loop of `run` or inside the method that makes it, so `Loops:` (which speaks only of `run`) can stay `none` — and `lock` or `parallel` from its frame.
 
 The page is self-contained (HTML, no network). On the left, the use cases as a tree: the climb from the adapter through each family down to the process, with the cases each child serves. The `_shared/` packages are not drawn as arrows across it: they sit apart, on one shelf per common parent, and each package shows what it takes from outside its own children as chips (`note_name`, `storage/lock` · lock). Hovering lights up what a package uses and who uses it; selecting it opens a panel with its steps, docstring, request → product, ports and dependencies. Each card's border is coloured by its strongest effect. A **Tree / Graph** toggle (keys `t`/`g`) switches to the whole graph at once: columns by depth, the shelves in bands below, every call as a curve (pan, zoom, hover to trace a package's calls). It is busier than the tree, on purpose; the tree stays the reading path. Both views share a text filter and a filter by effect. It also lists **alerts**: a `per-item` call into a package that is not `safe` to repeat. An alert is a question for the reader, not a failure.
+
+The agents of the runtime layer (§11.2) are nodes too, of kind `agent`, in a section and a band of their own: model and effort, limits, input and output, the instructions and every tool as the model gets them (read from the accepted context capture, never copied), the E1 notes of its own tools (from `agent.yml`), and the edges `dispatches` (from each run that submits a work the `AGENTS` table sends to it) and `answers` (to each run that observes that work). `tests/gates/test_architecture_agents.py` holds the nodes to the code, the captures, `agent.yml` and the profile (template-decisions E3).
 
 **Declarations on the map** (§2, "Declarations"). A catalogue and its apps are data, so they are not nodes: each app hangs on the package that holds it. The text tree shows it under the holder as `apps/<name>/  [app] binds <use_case>  <summary>`, and the bound use case shows `│ bound by: <holder>/apps/<name>`; `--json` gives each node its `apps` (`name`, `path`, `use_case`, `summary`, `settings`), and the text tree and the panel show the project keys too; the page shows a `holds apps/<name> → <use_case>` chip on the holder's card, and the panels list "Apps it holds" and "Bound by apps". The tool prints every declaration problem to stderr as `declaration: …` and exits 1, like a docstring problem.
 
@@ -661,7 +668,7 @@ Gate: `tests/gates/test_style.py::test_every_top_level_import_is_lazy`.
 
 ---
 
-## 10. Two applications and dependency direction
+## 10. Two applications, the runtime layer and dependency direction
 
 | `backend_logic` | `http_adapter` |
 | --- | --- |
@@ -676,11 +683,26 @@ Decoding the HTTP body is also an ingestion boundary. **This template's choice**
 
 HTTP handlers do not resolve domain defaults, do not mutate state, do not apply visibility rules and do not duplicate business rules: that is a logical use case with its own `run`.
 
+**The runtime layer and services.** Next to the two applications the template ships `backend_harness/`, the **agent runtime layer**: agents run as separate processes of a pinned agent runtime (dsh), each in its own workspace, started and tracked by a small HTTP server of their own (`backend_harness/server/`). It is not a third application of the logic and not a pipefeuille package tree: it has its own rules, its own uv project and Python, and its own offline gates, listed in [`backend_harness/README.md`](../../backend_harness/README.md) (template-decisions D10). Side processes of the image (`backend_harness/services/<name>/run.sh`) are discovered by its entrypoint; the template ships the mechanism and no service.
+
+```text
+http_adapter ──► backend_logic ──► _shared/agents/harness ──HTTP──► backend_harness/server ──► agent processes
+   (public)          (logic)        (port adapter, AGENTS)          (loopback, same image)       (dsh, one each)
+```
+
+- **Dependency direction:** `http_adapter -> backend_logic -> nothing of ours`; the logic reaches the runtime layer only through the adapter of its agent-runs port, over HTTP; `backend_harness -> nothing` (its server imports neither the logic nor the HTTP adapter); `services -> nothing`.
+- **One image, two servers.** The image runs the HTTP application (public) and the harness server (loopback only); the entrypoint starts the HTTP application once the harness listens, and the first server to exit takes the other down.
+- **The adapter is the only place that knows the agents.** Use cases name a *work* (`note_summary`), never an agent; `_shared/agents/harness/contracts.py` holds the `AGENTS` table that maps each work to `backend_harness/agents/<name>/`, its HTTP client (`httpx`, declared) and the harness's id grammar. The adapter's own JSON is the logic's strict decoder, passed in by its `run`, so its `contracts.py` never calls its own package's `run` (no cycle).
+
 The template's `tests/gates/test_architecture.py` guarantees by AST: dependency direction, `run.py` with a real `run` and package imports without network/opening of data.
 
 ---
 
-## 11. LLM agents
+## 11. LLM roles and agents
+
+A model enters a project in one of two ways, and they share the rules of 11.1: a **role** is a model call inside the logic's own process, behind a port (`roles/`); an **agent** is a separate process that runs a model in a loop with tools, dispatched by the logic and read back (11.2).
+
+### 11.1. Roles, and every model call
 
 Patterns for any project with model roles:
 
@@ -696,6 +718,21 @@ Patterns for any project with model roles:
 - **Context budgets in tokens**, not arbitrary truncation by characters. If only a heuristic exists (`chars/4`), call it an estimate, not a tokenizer.
 - If the product has a shape contract for generated text (e.g. prose punctuation), normalize in one central place, on the selected fields, never over identifiers/URLs.
 - **Mocks are the default.** A real model/network/OAuth call requires explicit and finite authorization; credentials being present is not authorization. Real tests stay under a marker (`-m llm`) turned off by default.
+
+### 11.2. Agents: dispatched processes
+
+An agent is work done outside the logic's process: a model with instructions and tools, run by the runtime layer (`backend_harness/`, §10) as a process of its own. The logic treats it as an outbound resource.
+
+- **Dispatched, never called.** A use case hands a *work* over through the agent-runs port (`backend_logic/_shared/agents/contracts.py`: `AgentRuns.submit` returns a run id) and another use case reads it back (`observe`: `queued | running | completed | failed`). The template's pair is `notes/summarize` (projects the stored note, submits it) and `notes/summary` (reads the run, admits the answer). A submission is never retried by the adapter: the runtime has no idempotency key, so a lost answer retried would run the work twice; the use case declares `Repeat: accumulates`.
+- **The port adapter is the one place that knows the agents.** `_shared/agents/harness/` (four files) holds the `AGENTS` table (`{"note_summary": "summarizer"}`), the HTTP client of the harness server and its grammar (run ids, tenants, the argv cap of one input). Use cases name works, so an agent can be replaced without touching them; tests use a typed fake of the port (`tests/support/agent_runs.py`) in rehearsal, and the adapter is tested against a stand-in of the harness's two routes (`httpx.MockTransport`).
+- **The output is a proposal.** The agent hands its answer over through a finalize tool of its own plugin (one JSON line); the reading use case decodes it with the logic's strict JSON and admits it (`admit_summary`) or rejects it (`AgentAnswerRejectedError`), never repairs it, whatever the agent's own tool already checked.
+- **`agent.yml` declares the agent to the harness.** Beside `workspace/` (so the model never sees it): its description, its limits (`max_run_seconds` and `max_tokens`, enforced in the run; `max_attempts`, the queue's reruns), the shared tools it opts into (`tools.shared`: `read`, `sql`, …) and every tool of its own plugins with the E1 `effects` and `repeat` of a `def run` (`tools.own`). Three readers hold it to the same verdicts (the image build's js-yaml, the graph's stdlib reader, PyYAML in the gate), on every real file and on a shared case file (template-decisions E3).
+- **The model context is controlled.** The model receives only what the project puts there: the profile disables the runtime's vendor identity, coding persona, runtime snapshot, side model calls, telemetry and every tool not added on purpose. `backend_harness/tests/context.sh --check` captures offline what each agent's first request carries and fails on a dead plugin, a denylisted phrase, a stale baseline or **any diff from the accepted baseline**. A baseline is accepted (`--update`) **only by the owner**, who reads the diff first.
+- **Limits, and recovery only for the unexpected.** Each run has a time and a token limit (a notice at 100%, exit 75 `LIMIT_EXCEEDED` at 125%, never rerun). Transient provider errors are the runtime's retry policy; permanent ones fail the turn; only errors outside both lists get one retry with a fixed notice. The two notices are the only texts the harness adds to the context on its own, and both are held by baselines.
+- **Pinned runtime, plugins in the repo.** The agent runtime is pinned (`DSH_VERSION` in the Dockerfile), never `latest`; every plugin outside its release lives in `backend_harness/` (ours and forks alike), never installed from npm or from someone's machine.
+- **The built-in provider is the default route**, with its telemetry and side calls disabled; a project that needs another provider adds its adapter plugin to `backend_harness/runtime/plugins/`.
+- **Real runs need explicit authorization.** No test, capture or end-to-end run calls a provider (the e2e uses an offline stand-in model). A real run needs the credential **and** the owner's written authorization (which model, until when, for what); a credential being present is not authorization.
+- **The graph shows them.** Each agent is an `agent` node of the architecture graph, read from its accepted capture (model, effort, instructions, every tool's text: no second copy), `agent.yml` and the profile, with a `dispatches` edge from each run that submits its work and an `answers` edge to each run that observes it (§2.2).
 
 ---
 

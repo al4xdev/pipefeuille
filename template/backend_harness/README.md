@@ -10,13 +10,13 @@ This folder is **not** a `backend_logic` package tree and does not follow the fo
 
 | Rule of the template | Here | Why |
 | --- | --- | --- |
-| Four modules per package, `run.py` door, `Pipe`/`Container` vocabulary, `def run` docstrings and the architecture graph | **No** | The server is one HTTP module (`server/server.py`); the rest is dsh plugins (JavaScript), shell and YAML. There is no pipeline to read top-down. The agents become visible to the logic's graph through the logic-side adapter, not through this folder. |
+| Four modules per package, `run.py` door, `Pipe`/`Container` vocabulary, `def run` docstrings and the architecture graph | **No** | The server is one HTTP module (`server/server.py`); the rest is dsh plugins (JavaScript), shell and YAML. There is no pipeline to read top-down. The agents are still nodes of the logic's architecture graph (`agent`), read by the template's `tests/support/harness_agents.py` from their captures, `agent.yml` and the profile (template-decisions E3). |
 | Python 3.15, `lazy` imports, `disallow_any_expr`, the template's `pyproject.toml` | **No** | The server is its own uv project: `server/pyproject.toml`, `server/uv.lock`, `server/.python-version` (3.14, which `compression.zstd` needs to read dsh's session logs), its own venv. It parses JSON from dsh and from requests with the standard library and pydantic, which carry `Any`; containing that would mean a boundary package per call for no reader's benefit. |
 | Its own gates | **Yes, its own** | `server/pyproject.toml` configures ruff (same rule set as the template, line 120, py314) and strict mypy (without `disallow_any_expr`); pytest. `tests/test.sh` runs them, with the plugin tests and the rename self-test. |
 | No secrets in code or logs; private data never a fixture; mocks by default; a real model call needs explicit authorization | **Yes** | Same reasons as everywhere (guide §11, §15). See [Real model runs](#real-model-runs). |
 | Privacy before context; the model receives only what we put there | **Yes, enforced** | The profile disables everything the vendor runtime would add on its own, and `tests/context.sh --check` holds the exact context to reviewed baselines. |
 | Comments for decisions and constraints, not for what the code says | **Yes** | |
-| Dependency direction | **Yes**: `logic -> nothing`; `harness -> nothing` of ours; `services -> nothing` | The server imports neither `backend_logic` nor `http_adapter`. The logic reaches agents only through its harness adapter (a later wave), over HTTP. |
+| Dependency direction | **Yes**: `logic -> nothing`; `harness -> nothing` of ours; `services -> nothing` | The server imports neither `backend_logic` nor `http_adapter`. The logic reaches agents only through the adapter of its agent-runs port (`backend_logic/_shared/agents/harness/`), over HTTP. |
 
 The template's root gates skip this tree for mypy only, and allow exactly one nested project file, `server/pyproject.toml` (see [Template gates](#template-gates)); ruff of the template root uses the server's own `[tool.ruff]` for `server/` (ruff picks the nearest config).
 
@@ -25,9 +25,11 @@ The template's root gates skip this tree for mypy only, and allow exactly one ne
 ```
 backend_harness/
   README.md               this file
-  Dockerfile              the image: dsh pinned, profiles, plugins, agents, server (context: this folder)
+  Dockerfile              the image: dsh pinned, profiles, plugins, agents, server, and the HTTP application
+                          (context: this folder; build context `logic`: the template root)
   Dockerfile.dockerignore what never enters the image (tests, venvs, docs)
-  entrypoint.sh           the image's service manager: services/*/run.sh + the server, SIGTERM forwarded
+  entrypoint.sh           the image's service manager: services/*/run.sh, the harness server (loopback), then
+                          the HTTP application (public); SIGTERM forwarded, the first to exit stops the rest
   docker.sh               the developer's one script: build, serve [--pg], agent, run, config, shell
   rename-prefix.sh        rename the `app` prefix (FILL-IN) everywhere, with a self-test
   runtime/                the platform layer every agent inherits
@@ -37,7 +39,8 @@ backend_harness/
     plugins/              dsh-plugin-app-limits (time/token limits), dsh-plugin-app-recovery (one retry, unexpected errors)
   agents/
     _shared/plugins/      opt-in plugins agents pick in agent.yml: dsh-plugin-app-tools (agent.yml schema + CLI, a library),
-                          dsh-plugin-app-fs (file tools fenced to the workspace)
+                          dsh-plugin-app-fs (file tools fenced to the workspace),
+                          dsh-plugin-app-sql (DuckDB over workspace files, on the server's venv)
     summarizer/           EXAMPLE agent (notes domain): agent.yml, workspace/{AGENTS.md,style.md},
                           plugins/dsh-plugin-app-summarizer (finalize_summary)
   server/                 the harness server, its own uv project (Python 3.14)
@@ -45,13 +48,15 @@ backend_harness/
     tests/                its pytest (Postgres tests need APP_TEST_PG)
   services/               side processes of the image: the mechanism only, none shipped (services/README.md)
   tests/                  the harness's own offline gates
-    test.sh               plugin/runner/profile tests in the image + server gates + rename self-test
+    test.sh               plugin/runner/profile tests in the image + server gates (and the sql worker's) + rename self-test
     context.sh            the controlled-context gate (capture / --check / --update)
     context.mjs           the capture, run inside the image
     context-selftest.sh   proves the context gate fails on each of its four conditions
     denylist.txt          phrases that must never reach the model
     baseline/             the reviewed model context, one file per scenario
-    e2e.sh                end to end: /dispatch -> app-agent -> dsh -> /status completed, offline
+    e2e.sh                end to end, offline: /dispatch -> /status completed, then through the HTTP application
+                          (PUT a note, POST its summary, GET /summaries/<run_id> completed)
+    agent_yml_cases.json  every good and bad agent.yml case, with each of its three readers' verdict
     e2e/                  TEST ONLY: the offline model stand-in and its derived image
     agents/, runtime/     *.test.mjs, mirroring the paths of what they test
 ```
@@ -117,7 +122,7 @@ Without the key, every model request fails with `MISSING_CREDENTIAL` before any 
 
 Each agent is a folder `agents/<name>/` (name `^[A-Za-z0-9][A-Za-z0-9_]*$`, no `-`):
 
-- `agent.yml` (outside `workspace/`, so the model never sees it): `description` (one or two sentences), `limits` (`max_run_seconds`, `max_tokens`: enforced in the run; `max_attempts`: the Postgres queue's reruns), `tools.shared` (opt-in tools of `agents/_shared/plugins`), `tools.own` (every tool its own plugins register, with the logic's E1 `effects` and `repeat`), optional `model`. Schema and the one parser: `agents/_shared/plugins/dsh-plugin-app-tools/agent.js`; a bad file fails the image build.
+- `agent.yml` (outside `workspace/`, so the model never sees it): `description` (one or two sentences), `limits` (`max_run_seconds`, `max_tokens`: enforced in the run; `max_attempts`: the Postgres queue's reruns), `tools.shared` (opt-in tools of `agents/_shared/plugins`: `read`, `write`, `edit`, `list`, `trash`, `apply_patch`, `sql`), `tools.own` (every tool its own plugins register, with the logic's E1 `effects` and `repeat`), optional `model`. This side's parser: `agents/_shared/plugins/dsh-plugin-app-tools/agent.js`; a bad file fails the image build. The template's gates read it with two parsers of their own (`tests/support/harness_agents.py`, PyYAML in `tests/gates/test_agent_yml.py`), and all three are held to the verdicts of `tests/agent_yml_cases.json` (template-decisions E3).
 - `workspace/`: the read-only template every run's workspace links to; its `AGENTS.md` is the agent's instructions.
 - `plugins/` (optional): its own dsh plugins, inserted only into its profile `app_<name>`. A tool that ends the run is declared in the plugin's `package.json` (`"harness": {"ends_run": [...]}`) and writes the run's output itself (one JSON line on stdout), as `finalize_summary` does.
 
@@ -147,35 +152,33 @@ Adding an agent: the folder above, then `tests/test.sh --build`, `tests/context.
 ## Running it
 
 ```fish
-backend_harness/docker.sh                    # build, serve on http://127.0.0.1:8081 (memory queue, no model key)
+backend_harness/docker.sh                    # build, serve the HTTP application on http://127.0.0.1:8080 (memory queue, no model key)
 backend_harness/docker.sh --pg               # same, with the Postgres container app-pg-local (plain TCP, local network)
 backend_harness/docker.sh config             # the composed profile `app`
 backend_harness/tests/test.sh                # plugin, runner and profile tests in the image; server gates; rename self-test
 backend_harness/tests/context.sh --check     # the controlled-context gate
 backend_harness/tests/context-selftest.sh    # the gate fails on each condition
-backend_harness/tests/e2e.sh                 # /dispatch summarizer -> /status completed, --network none
+backend_harness/tests/e2e.sh                 # /dispatch -> completed, and PUT note -> POST summary -> GET /summaries, --network none
 backend_harness/tests/e2e.sh --pg            # the same on the Postgres queue (internal docker network)
 ```
 
-`docker.sh serve` publishes the server on the host's loopback only (inside the container it listens on all interfaces so the port can be published).
+`docker.sh serve` publishes only the HTTP application (`APP_HTTP_HOST=0.0.0.0:8080` inside the container, the host's loopback `127.0.0.1:$PORT` outside); the harness server stays on the container's loopback (`127.0.0.1:8081`), reached only by the HTTP application's agent-runs adapter (`APP_HARNESS_URL`). `IMAGE` names the tag every script builds and tests (default `app-harness:local`); give each checkout its own when several share a Docker host (the e2e and self-test images, containers and networks are named after it).
 
 ## Services
 
 `services/<name>/run.sh` is a side process of the image, discovered by `services/install.sh` (build) and `entrypoint.sh` (run); `services -> nothing`. The template ships the mechanism and no service: `services/README.md`.
 
-## Seams for the logic side
+## Connected to the logic
 
-Left for the wave that connects the logic (nothing here imports it):
-
-- **Port adapter**: `backend_logic/_shared/task/harness/` will call `POST /dispatch` and `POST /status` (contracts above; `output` is the finalize tool's JSON line, to be decoded by the logic's strict JSON and admitted as a proposal). Its agent table maps a logic use case to an `agent_name` of `agents/`.
-- **HTTP routes**: `http_adapter` forwards to the logic only; it reaches the harness through the logic's adapter. In the image, the HTTP application joins `entrypoint.sh` at the marked seam (started once the harness listens), becomes the published server, and the harness goes back to loopback only.
-- **Architecture graph**: an `agent` node per `agents/<name>/agent.yml` (`description`, `tools.own` with E1 `effects`/`repeat`), read by the logic-side tool with its own parser.
-- **Python gates over `agent.yml`**: E1 values of `tools.own`, every `own` entry equal to the tools the agent's capture shows (`tests/baseline/app.<agent>.txt`), every `ends_run` tool declared.
+- **Port adapter**: `backend_logic/_shared/agents/harness/` calls `POST /dispatch` and `POST /status` (contracts above) for the agent-runs port `backend_logic/_shared/agents/contracts.py`; its `AGENTS` table maps a work of the logic (`note_summary`) to an agent of `agents/` (`summarizer`). `output` is the finalize tool's JSON line, decoded by the logic's strict JSON and admitted as a proposal by `notes/summary`.
+- **HTTP routes**: `http_adapter` (`POST /notes/{name}/summary`, `GET /summaries/{run_id}`) forwards to the logic only; it reaches the harness through the logic's adapter. In the image, the HTTP application (`/opt/app/web`, its own venv from the template's `uv.lock`, Python 3.15) starts once the harness listens, and is the published server.
+- **Architecture graph**: an `agent` node per `agents/<name>/`, with `dispatches` and `answers` edges from the `AGENTS` table (`tests/gates/test_architecture_agents.py`).
+- **Python gates over `agent.yml`**: `tests/gates/test_agent_yml.py` (E1 values of `tools.own`, every `own` entry equal to the tools the agent's capture shows, every `ends_run` tool declared, the shared cases).
 
 ## Template gates
 
-The template's root gates and this folder meet in two places, which need one narrow change of the root configuration (owner's, pipefeuille RUNBOOK task C): `pyproject.toml` `[tool.mypy] exclude` gains `"^backend_harness/"`, and `tests/gates/test_config.py` allows exactly `backend_harness/server/pyproject.toml` as a second project file and that one exclude, with a self-test of the scanner. Without it, `mypy .` checks the server under the template's 3.15/`disallow_any_expr` settings (274 errors) and `test_pyproject_is_the_only_tool_configuration` fails. Ruff and pytest need nothing: ruff uses the server's own `[tool.ruff]`, and the root pytest collects only `tests/`. A service with its own `pyproject.toml` would need the same kind of exception.
+The template's root gates and this folder meet in two places, which need one narrow change of the root configuration (owner's, pipefeuille RUNBOOK task C): `pyproject.toml` `[tool.mypy] exclude` gains `"^backend_harness/"`, and `tests/gates/test_config.py` allows exactly `backend_harness/server/pyproject.toml` as a second project file and that one exclude, with a self-test of the scanner. Without it, `mypy .` checks the server under the template's 3.15/`disallow_any_expr` settings (274 errors) and `test_pyproject_is_the_only_tool_configuration` fails. Ruff and pytest need nothing: ruff uses the server's own `[tool.ruff]`, and the root pytest collects only `tests/`. A service with its own `pyproject.toml` would need the same kind of exception; the shared `sql` tool avoids one by running its worker on the server's venv (`duckdb` is a locked dependency of `server/pyproject.toml`). Template-decisions D10.
 
 ## Provenance
 
-Backported from a production project's harness, generalized: the base profile, `app-agent`, the per-agent profile generator, the limits and recovery plugins, the `agent.yml` reader, the fenced file tools, the server (dispatch, status, memory and Postgres queues, usage, stderr relay, JSON logs), the entrypoint's service manager, `docker.sh`, and the context gate with its denylist. Not brought: its cloud launcher and job mode, its secret-bundle and mTLS database format, its environment and sandbox namespaces, its cloud logging trace fields, its provider adapter and credential plumbing (replaced by dsh's built-in provider), its cloud storage sync service, a DuckDB SQL tool (a second Python project inside the plugins; a project that needs it backports it with its own gate exception), its domain agents, and its Python `agent.yml` gate (the logic side's, later).
+Backported from a production project's harness, generalized: the base profile, `app-agent`, the per-agent profile generator, the limits and recovery plugins, the `agent.yml` reader, the fenced file tools, the server (dispatch, status, memory and Postgres queues, usage, stderr relay, JSON logs), the entrypoint's service manager, `docker.sh`, and the context gate with its denylist. Not brought: its cloud launcher and job mode, its secret-bundle and mTLS database format, its environment and sandbox namespaces, its cloud logging trace fields, its provider adapter and credential plumbing (replaced by dsh's built-in provider), its cloud storage sync service and its domain agents. Brought later, without what made them project-specific: the DuckDB `sql` tool (its worker now on the server's venv, no Python project of its own), the logic's port adapter (avoiding the source's cycle: the adapter's `contracts.py` never calls its own package's `run`) and the Python `agent.yml` gate.

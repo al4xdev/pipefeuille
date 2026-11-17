@@ -7,7 +7,7 @@ description, the limits, the E1 effects and repeat of the agent's own tools). Th
 AGENTS table (backend_logic/<...>/_shared/<port>/harness/contracts.py) turns each work into a
 `dispatches` edge from the runs that submit it and an `answers` edge to the runs that observe
 it. The self-tests write a synthetic tree and break it one way at a time; each mutation names
-the exact problems the graph must report. Template-decisions D10.
+the exact problems the graph must report. Template-decisions E3.
 """
 
 from pathlib import Path
@@ -42,18 +42,22 @@ def write_tree(root: Path, files: dict[str, str]) -> None:
 def test_every_agent_folder_is_a_node_held_to_its_capture() -> None:
     graph, problems = build_graph(ROOT)
     assert problems == []
+    agents_dir = HARNESS / AGENTS_FOLDER
+    folders = (
+        sorted(path.name for path in agents_dir.iterdir() if (path / "workspace").is_dir())
+        if agents_dir.is_dir()
+        else []
+    )
+    ids = sorted(node_id for node_id, node in graph.nodes.items() if node.kind == "agent")
+    assert [graph.nodes[node_id].name for node_id in ids] == folders
+    if not folders:
+        return
     profile, _ = profile_of(HARNESS)
     assert profile is not None
     patch = (HARNESS / Path(*PROFILES) / profile / PATCH_FILE).read_text(encoding="utf-8")
     route = default_model(patch)
     assert route is not None
-    folders = sorted(
-        path.name for path in (HARNESS / AGENTS_FOLDER).iterdir() if (path / "workspace").is_dir()
-    )
-    ids = sorted(node_id for node_id, node in graph.nodes.items() if node.kind == "agent")
-    nodes = [graph.nodes[node_id] for node_id in ids]
-    assert [node.name for node in nodes] == folders and folders
-    for node in nodes:
+    for node in (graph.nodes[node_id] for node_id in ids):
         facts = node.agent
         assert facts is not None
         capture_file = HARNESS / Path(*BASELINES) / f"{profile}.{node.name}.txt"

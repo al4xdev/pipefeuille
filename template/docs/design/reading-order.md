@@ -8,20 +8,22 @@ You have never seen this project. This page says what to read, in what order, an
 2. The project's **[`README.md`](../../README.md)** — what each folder demonstrates. Then the current map, generated from the code: `uv run python tests/support/architecture.py` (each package with its summary, effects, repeat, loops and concurrency, and its calls); the vocabulary of those values is guide §2.2.
 3. **The code, by the climb.** Open the files in this order; in each package read `run.py` → `contracts.py` → `container.py` → `pipeline.py`:
    1. `backend_logic/run.py` — the single door and the menu of `@overload`s;
-   2. `backend_logic/notes/run.py` — a family: `match` over `PrepareResources | ListNotes | SaveNote`;
+   2. `backend_logic/notes/run.py` — a family: `match` over `PrepareResources | ListNotes | SaveNote | DispatchSummary | ReadSummary`;
    3. `backend_logic/notes/list/` — the minimal process;
    4. `backend_logic/notes/save/` — async process with lock, children `decode`/`encode`, `commit` and receipt;
    5. `backend_logic/notes/prepare/` — the lifetime resources (store, locks, clock);
    6. `backend_logic/roles/summarizer/` and `roles/digest/` — LLM role and parallelism with `TaskGroup`;
-   7. the `_shared/` — `backend_logic/_shared/` (`json/`, `note_name/`) and `notes/_shared/storage/`: what neighbours share, one package per operation; first read the `_shared/` block of guide §2;
-   8. `backend_logic/notes/apps/list_notes/app.toml` — a declaration: data, no Python, that binds the use case `notes/list`; first read the "Declarations" block of guide §2;
-   9. `http_adapter/` — the HTTP edge, which enters only through the root.
+   7. `backend_logic/notes/summarize/` and `notes/summary/` — an agent dispatched and read back through the agent-runs port; then the port, `backend_logic/_shared/agents/contracts.py`, and its adapter `_shared/agents/harness/` (the `AGENTS` table); first read guide §11.2;
+   8. the `_shared/` — `backend_logic/_shared/` (`json/`, `note_name/`, `agents/`) and `notes/_shared/` (`storage/`, `record/`): what neighbours share, one package per operation; first read the `_shared/` block of guide §2;
+   9. `backend_logic/notes/apps/list_notes/app.toml` — a declaration: data, no Python, that binds the use case `notes/list`; first read the "Declarations" block of guide §2;
+   10. `http_adapter/` — the HTTP edge, which enters only through the root; `http_adapter/serve.py` is the process entrypoint;
+   11. `backend_harness/README.md` — the agent runtime layer: its own rules (it is not a package tree), the example agent `agents/summarizer/` (`agent.yml`, `workspace/AGENTS.md`, its plugin), and its offline gates. Read the code there only when the task touches the runtime.
 4. **[`vertical-pipelines.md`](vertical-pipelines.md)** (the guide) — §1 to §6 in full; the rest through the table below, when the topic appears.
 5. **[`vocabulary.md`](vocabulary.md)** — before naming anything.
 6. **[`template-decisions.md`](template-decisions.md)** — the why of each rule and the gate that guards it. Read before thinking about "simplifying" a rule.
 7. **[`construction.md`](construction.md)** — how to conduct the waves and assemble the delegation packages.
 8. **[`architecture-log.md`](architecture-log.md)** — the decisions already made in this project.
-9. **The gates as specification:** `tests/gates/test_style.py`, `tests/gates/test_architecture.py`, `tests/gates/test_config.py`, `tests/gates/test_boundaries.py`. The test comments cite the guide section that each rule protects (`§2`, `§3.1`…).
+9. **The gates as specification:** `tests/gates/test_style.py`, `tests/gates/test_architecture.py`, `tests/gates/test_config.py`, `tests/gates/test_boundaries.py`, and for agents `tests/gates/test_architecture_agents.py` and `tests/gates/test_agent_yml.py`. The test comments cite the guide section that each rule protects (`§2`, `§3.1`…).
 
 Stop here and run the four gates (`AGENTS.md`, "Gates" section) before changing anything.
 
@@ -40,7 +42,9 @@ Do not read the whole project. Follow [construction.md → For the implementer](
 | decide a type, or run into `Any` | §6, §6.1, `template-decisions.md` C |
 | write, publish or lock something | §9 |
 | touch the HTTP adapter | §10 |
-| create an LLM role | §11 |
+| create an LLM role | §11.1 |
+| add or change an agent, its tools or its context | §11.2, `backend_harness/README.md` |
+| touch the agent runtime layer (`backend_harness/`) | §10, `backend_harness/README.md`, `template-decisions.md` D10 |
 | rehearse, test or delegate | §12, §13, `construction.md` |
 | record a decision | §14, `architecture-log.md` |
 | review a delivery | §16 (anti-patterns), §17 (checklist) |

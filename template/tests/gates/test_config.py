@@ -78,9 +78,10 @@ PARALLEL_CONFIGS = {
 }
 
 
-# The agent runtime layer (backend_harness/README.md) is the one project of its own inside the
-# template: its server keeps its own pyproject (Python, venv, lock, ruff and mypy), and the
-# template's mypy skips that tree only. Named exactly, so no other folder can claim the same.
+# The agent runtime layer (backend_harness/README.md, template-decisions D10) is the one
+# project of its own inside the template: its server keeps its own pyproject (Python, venv,
+# lock, ruff and mypy), and the template's mypy skips that tree only. Named exactly, so no
+# other folder can claim the same.
 HARNESS_PROJECT = Path("backend_harness/server/pyproject.toml")
 HARNESS_MYPY_EXCLUDE = "^backend_harness/"
 
