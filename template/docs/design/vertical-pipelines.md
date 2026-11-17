@@ -579,7 +579,7 @@ Reference configuration (the template's `pyproject.toml`): `mypy strict = true`,
 
 An annotation is a claim mypy does not check: `x: int = library_call()` turns `Any` into `int` exactly like a `cast`. Annotate `object` and narrow; a stub declares `object` wherever the library promises nothing.
 
-**Libraries enter by name, and only declared ones** (template-decisions D9). A third-party import in `backend_logic` or `http_adapter` names a library of `[project] dependencies` in `pyproject.toml` (an extra it requests counts); a library that is only installed, as a transitive dependency (`starlette`) or a dev tool (`httpx`), is not granted. Nothing in that code calls or references `importlib.import_module` or `__import__`: a module loaded by string hides a rename and its `Any` from mypy, so it is never the way around a type. Gate: `tests/gates/test_boundaries.py`.
+**Libraries enter by name, and only declared ones** (template-decisions D9). A third-party import in `backend_logic` or `http_adapter` names a library of `[project] dependencies` in `pyproject.toml` (an extra it requests counts); a library that is only installed, as a transitive dependency (`starlette`) or a dev tool (`httpx`), is not granted. Nothing in that code can load a module by a string: it imports none of the loader modules (`importlib` and its submodules, `pydoc`, `runpy`, `pkgutil`, `zipimport`, `builtins`, `uvicorn.importer`), touches no `sys.modules` and names none of `__import__`, `__builtins__`, `__loader__`, `__spec__`, `exec`, `eval`. A module loaded by string hides a rename and its `Any` from mypy, so it is never the way around a type. A stub in `tests/support/` must match the installed library: names, parameter kinds and positions, callables as `def`, properties, re-exports. Gate: `tests/gates/test_boundaries.py`.
 
 Other typed ways out in the template:
 
@@ -817,7 +817,7 @@ Number of agents, passing tests and percentages are **not** evidence of completi
 | `MAX_TOKENS = 384` at the top, used once | False configuration | literal at the call site |
 | `from app.settings import SETTINGS` inside a child | Global state | pass explicitly from the owner |
 | `dict[str, Any]` crossing the domain | Hides the contract | declared fields; JSON only at ingestion |
-| `importlib.import_module("lib")` or an override to get past a library's `Any` | mypy no longer reads the library; a rename passes | a plain import of a declared dependency, typed first (§6) |
+| `importlib.import_module("lib")`, `pydoc.locate(...)` or an override to get past a library's `Any` | mypy no longer reads the library; a rename passes | a plain import of a declared dependency, typed first (§6) |
 | Step engine/phase registry | Hides the order | fixed order in `run` |
 | Parent hands its whole Container to the child | Diffuse coupling | explicit inputs |
 | `helpers/` with a single consumer's function | Premature abstraction | keep it local |
