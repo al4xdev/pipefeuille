@@ -1,0 +1,50 @@
+# The harness server's own project: its own venv, lock and Python (.python-version),
+# apart from the template's root project. Not a pipefeuille package: the four-file
+# style, `lazy` imports and disallow_any_expr do not apply here (../README.md says
+# which rules do and why). Its own gates:
+#   uv run --project backend_harness/server ruff check backend_harness/server
+#   uv run --project backend_harness/server ruff format --check backend_harness/server
+#   uv run --project backend_harness/server mypy --config-file backend_harness/server/pyproject.toml backend_harness/server
+#   uv run --project backend_harness/server pytest backend_harness/server
+# (backend_harness/tests/test.sh runs all four.)
+[project]
+name = "app-harness-server"
+version = "0.1.0"
+description = "HTTP entrypoint of the agent runtime (dsh agents as processes)"
+requires-python = ">=3.14"
+dependencies = [
+    "fastapi>=0.115",
+    "psycopg[binary,pool]>=3.2",
+    "uvicorn>=0.32",
+]
+
+[dependency-groups]
+dev = [
+    "httpx>=0.28",
+    "mypy>=1.15",
+    "pytest>=8.0",
+    "ruff>=0.11",
+]
+
+[tool.uv]
+package = false
+
+[tool.ruff]
+target-version = "py314"
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W", "UP", "B", "C4", "SIM"]
+
+[tool.mypy]
+python_version = "3.14"
+strict = true
+warn_unreachable = true
+# Tests are folders without __init__.py, named by file.
+explicit_package_bases = true
+
+[tool.pytest.ini_options]
+# server.py is imported by name from this folder.
+pythonpath = ["."]
+testpaths = ["tests"]
+addopts = "-ra --tb=short"

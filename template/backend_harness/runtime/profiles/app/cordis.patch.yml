@@ -1,0 +1,139 @@
+# Base runtime profile `app`: a headless agent with none of dsh's own tools.
+#
+# The base and headless bundles ship a coding-agent toolset. None of it belongs
+# here: the agent must not read, write, run or fetch anything on its own. Every
+# tool it gets comes from our plugins, and this profile has none: each agent
+# runs its own profile, app_<name>, generated at image build
+# (runtime/bin/app-profiles.mjs) as this file plus one insert per plugin of that
+# agent, right before `agent-default-model`: the shared opt-in ones
+# (agents/_shared/plugins, picked by the tools.shared of agents/<name>/agent.yml)
+# and its own (agents/<name>/plugins). An agent with neither has no tools at all.
+# Disable by id; `./docker.sh config` (dsh --profile app --dump-config) shows the
+# composed tree to confirm nothing tool-shaped is left.
+#
+# The model route is dsh's BUILT-IN provider (`deepseek-official`, entry
+# llm-deepseek, credential DEEPSEEK_API_KEY), left as the bundles ship it. A real
+# run needs that credential AND the owner's written authorization (README.md,
+# "Real model runs"); the offline gates never call it.
+
+# Shell and processes
+- id: tool-bash
+  disabled: true
+- id: tool-pwsh
+  disabled: true
+- id: tool-jobs
+  disabled: true
+
+# Filesystem
+- id: tool-fs
+  disabled: true
+- id: tool-fs-search
+  disabled: true
+
+# Web
+- id: tool-web
+  disabled: true
+- id: web-search-deepseek
+  disabled: true
+- id: web-fetch-http
+  disabled: true
+
+# Agent self-extension: plugins, skills, MCP, subagents, workflows
+- id: tool-plugin-manager
+  disabled: true
+- id: tool-skill
+  disabled: true
+- id: mcp-resources
+  disabled: true
+- id: tool-subagent
+  disabled: true
+- id: tool-subagent-fork
+  disabled: true
+- id: tool-subagent-control
+  disabled: true
+- id: tool-subagent-list-agents
+  disabled: true
+- id: tool-workflow
+  disabled: true
+
+# Coding-loop helpers
+- id: tool-todo
+  disabled: true
+- id: tool-goal
+  disabled: true
+- id: tool-ralph
+  disabled: true
+# Not tool-* by id, but registers exit_plan_mode for the model.
+- id: plan-mode
+  disabled: true
+
+# Model context: nothing the harness injects on its own. The base prompt names
+# the vendor ("powered by ..."), sets a coding-agent persona and appends a
+# runtime-context message about file/approval policy, none of which fits an
+# agent with no tools. Our persona and instructions come from our own code;
+# tests/context.sh --check guards this.
+# A config patch replaces the whole block, so every field is restated.
+- id: system-prompt
+  config:
+    includeHarnessIdentity: false
+    personaPrefix: ''
+    personaSuffix: ''
+    includeRuntimeContext: false
+
+# No side model calls: the title generator sends the conversation to the model
+# again just to name the session, which a backend never shows.
+- id: session-title-llm
+  disabled: true
+
+# Privacy before context: nothing about a run leaves the container except the
+# model request itself.
+# - session-telemetry-otel exports session events to the vendor's collector.
+# - session-log-deepseek attaches the whole session log (every event, tool
+#   results included) to each official-API request as `dsh_session_log`.
+# - plugin-package-inventory-deepseek attaches the list of loaded packages to
+#   each official-API request as `dsh_plugin_packages`.
+- id: session-telemetry-otel
+  disabled: true
+- id: session-log-deepseek
+  disabled: true
+- id: plugin-package-inventory-deepseek
+  disabled: true
+
+# The route stays on (no `disabled`); only its retry policy is written out, the
+# value dsh applies when none is set, so the one list of transient codes is
+# visible here. Transient failures only (429, 5xx, timeout, network, empty
+# reply), run by the built-in llm-retry; never AUTH, QUOTA or INVALID_REQUEST.
+# app-recovery gets this resolved policy with each request error and leaves
+# these codes alone.
+- id: llm-deepseek
+  config:
+    retryPolicy:
+      mode: normal
+      maxRetries: 5
+      retryableCodes: [EMPTY_RESPONSE, RATE_LIMIT, SERVER, TIMEOUT, TRANSPORT]
+      backoff:
+        initialDelayMs: 500
+        maxDelayMs: 10000
+        jitterRatio: 0.1
+# Ours: one retry with a notice to the model for unexpected failures, and a
+# MOCK stderr log of every request error (placeholder for the real logging).
+- insert:
+    - id: app-recovery
+      name: dsh-plugin-app-recovery
+      config:
+        maxRecoveriesPerTurn: 1
+# Ours: the agent's max_run_seconds and max_tokens (agent.yml, passed by
+# app-agent as APP_LIMITS): one notice to the model at 100%, exit 75
+# (LIMIT_EXCEEDED) at 125%. Without APP_LIMITS it does nothing.
+- insert:
+    - id: app-limits
+      name: dsh-plugin-app-limits
+# An agent's plugins are inserted here, in its app_<name> profile
+# (app-profiles.mjs looks for the next line; keep it exactly one, unindented).
+# The route stays the bundles' default provider; an agent.yml `model` replaces
+# only the model and reasoningEffort lines below, in that agent's profile.
+- id: agent-default-model
+  config:
+    provider: deepseek-official
+    model: deepseek-flash
+    reasoningEffort: low

@@ -1,0 +1,20 @@
+profile app  route deepseek-official/deepseek-flash  preset -
+bundles @deepseek-ai/dsh-base, @deepseek-ai/dsh-headless
+scenario first 1 request(s) failed with PROVIDER_TERMINATED; this is the request after recovery
+options {"reasoningEffort":"low","maxTokens":256000,"toolHistory":{"tools":[],"updates":[]}}
+
+== system sections (2)
+-- deployment:persona-prefix (0 chars)
+
+
+-- deployment:persona-suffix (0 chars)
+
+
+== messages (2)
+-- #1 user/user (24 chars)
+context probe: reply OK.
+
+-- #2 user/app-recovery-notice (264 chars)
+Notice: your previous response could not be completed (error PROVIDER_TERMINATED). This is an automatic system notice, not a message from the user. Retry 1 of 1: answer the last user message again; if you were calling a function, make sure the call is well formed.
+
+== tools (0)

@@ -78,14 +78,44 @@ PARALLEL_CONFIGS = {
 }
 
 
-def test_pyproject_is_the_only_tool_configuration() -> None:
-    parallel = sorted(
+# The agent runtime layer (backend_harness/README.md) is the one project of its own inside the
+# template: its server keeps its own pyproject (Python, venv, lock, ruff and mypy), and the
+# template's mypy skips that tree only. Named exactly, so no other folder can claim the same.
+HARNESS_PROJECT = Path("backend_harness/server/pyproject.toml")
+HARNESS_MYPY_EXCLUDE = "^backend_harness/"
+
+
+def parallel_configs(root: Path) -> list[str]:
+    """Tool configuration files besides the root pyproject.toml and the harness server's."""
+    return sorted(
         relative.as_posix()
-        for path in ROOT.rglob("*")
+        for path in root.rglob("*")
         if path.name in PARALLEL_CONFIGS
-        and (relative := path.relative_to(ROOT)) != Path("pyproject.toml")
+        and (relative := path.relative_to(root)) not in (Path("pyproject.toml"), HARNESS_PROJECT)
         and not any(part.startswith(".") for part in relative.parts[:-1])
     )
+
+
+def test_parallel_config_scanner_allows_only_the_harness_server(tmp_path: Path) -> None:
+    for name in (
+        "pyproject.toml",
+        "backend_harness/server/pyproject.toml",
+        "backend_harness/server/ruff.toml",
+        "backend_harness/services/x/pyproject.toml",
+        "backend_logic/pyproject.toml",
+        ".venv/lib/pyproject.toml",
+    ):
+        (tmp_path / name).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / name).write_text("", encoding="utf-8")
+    assert parallel_configs(tmp_path) == [
+        "backend_harness/server/ruff.toml",
+        "backend_harness/services/x/pyproject.toml",
+        "backend_logic/pyproject.toml",
+    ]
+
+
+def test_pyproject_is_the_only_tool_configuration() -> None:
+    parallel = parallel_configs(ROOT)
     assert not parallel, f"configure tools only in the root pyproject.toml: {parallel}"
 
 
@@ -132,7 +162,7 @@ def test_mypy_gate_keeps_any_out_of_expressions_everywhere() -> None:
         assert mypy[flag] is True, flag
     assert strings(mypy["enable_error_code"]) >= MYPY_ERROR_CODES
     # Code is never excluded from the checker, and no global switch hides errors.
-    assert strings(mypy["exclude"]) == {"^\\.data/", "^\\.dumps/"}
+    assert strings(mypy["exclude"]) == {"^\\.data/", "^\\.dumps/", HARNESS_MYPY_EXCLUDE}
     # Another root would rename modules and slip them past the override names below.
     assert strings(mypy["mypy_path"]) == {"tests/support"}
     hiding = {

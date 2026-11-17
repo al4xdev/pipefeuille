@@ -1,0 +1,3 @@
+# dsh profile root: an empty entry list. The tree is composed from the bundles in
+# package.json, then cordis.patch.yml. Edit cordis.patch.yml, not this file.
+[]

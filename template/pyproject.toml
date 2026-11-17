@@ -67,7 +67,10 @@ enable_error_code = [
     "exhaustive-match",
     "deprecated",
 ]
-exclude = ["^\\.data/", "^\\.dumps/"]
+# backend_harness/ is the agent runtime layer, a project of its own (its server has its own
+# pyproject, Python, venv, ruff and mypy: backend_harness/README.md). The only code mypy skips
+# here; tests/gates/test_config.py names it exactly.
+exclude = ["^\\.data/", "^\\.dumps/", "^backend_harness/"]
 # Folders have no __init__.py (template-decisions A1): every module is named from the project
 # root (backend_logic.notes.save.run), and tests/support is a root of its own, as on the pytest
 # pythonpath. Being on mypy_path, tests/support also holds the template's typed stubs

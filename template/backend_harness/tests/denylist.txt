@@ -1,0 +1,19 @@
+# Phrases that must never reach the `app` model (case-insensitive, one per line).
+# context.sh --check fails when any of them appears in a message, a tool
+# description or a tool schema. Never remove a line to make a check pass: fix
+# the source (usually backend_harness/runtime/profiles/app/cordis.patch.yml).
+
+# Vendor identity (system-prompt includeHarnessIdentity).
+DeepSeek
+powered by
+You are an AI agent
+# Coding persona (system-prompt personaPrefix/personaSuffix).
+coding agent
+working directory
+# Runtime-context snapshot (system-prompt includeRuntimeContext).
+runtime context
+file policy
+Approval policy
+# Plan mode (entry plan-mode).
+exit_plan_mode
+plan mode
