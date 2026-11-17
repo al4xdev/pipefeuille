@@ -135,6 +135,35 @@ test('table paths go through the fence: escapes read like missing files', async 
   }
 })
 
+// The shape a critic found: DuckDB reads a path as a pattern, so a workspace file named `*`
+// (the model can write one) loaded every entry beside it, the template's links too, and with
+// them an outside file and another tenant's. The worker hands DuckDB an open file
+// (/proc/self/fd/<n>), never a path: a name with pattern characters is just a name.
+test('a table path is a file, never a pattern: `*` and `g[a-z].csv` load as themselves', async () => {
+  const sibling = join(work, 't2', 'probe', '22222222-2222-4222-8222-222222222222')
+  await mkdir(sibling, { recursive: true })
+  await writeFile(join(sibling, 'theirs.csv'), 'secret\nsibling\n')
+  // Template links that leave the template (app-agent and the image build refuse them; the
+  // worker must not depend on that) and their links in the workspace, as app-agent makes them.
+  await symlink(join(outside, 'secret.csv'), join(template, 'x.csv'))
+  await symlink(join(sibling, 'theirs.csv'), join(template, 'sib.csv'))
+  await symlink(join(template, 'x.csv'), join(root, 'x.csv'))
+  await symlink(join(template, 'sib.csv'), join(root, 'sib.csv'))
+  await writeFile(join(root, '*'), 'secret\nmine\n')
+  await writeFile(join(root, 'g[a-z].csv'), 'id\n1\n')
+  await writeFile(join(root, 'gb.csv'), 'id\n2\n3\n')
+  const star = await run({ query: 'SELECT * FROM _', tables: [{ path: '*', format: 'csv', header: true }] })
+  assert.equal(star, 'secret\nmine\n\n(1 of 1 rows)')
+  const literal = await run({ query: 'SELECT count(*) AS n FROM g_a_z_', tables: ['g[a-z].csv'] })
+  assert.equal(literal, 'n\n1\n\n(1 of 1 rows)')
+  for (const path of ['**/*', '*.csv', 'g?.csv', '{x,sib}.csv', 'x.csv', 'sib.csv']) {
+    const { ok, out, code } = await seen({ query: 'SELECT * FROM t', tables: [{ path, format: 'csv' }] })
+    assert.equal(ok, false, `${path}: ${out}`)
+    assert.equal(code, 'APP_FS_NOT_FOUND', `${path}: ${out}`)
+    assert.ok(!out.includes('outer') && !out.includes('sibling'), `${path}: ${out}`)
+  }
+})
+
 test('the query itself reaches no file, network, extension or setting', async () => {
   const before = await entries()
   const attempts = [

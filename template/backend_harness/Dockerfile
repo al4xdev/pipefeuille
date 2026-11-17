@@ -75,6 +75,9 @@ COPY --chmod=0755 runtime/plugins/ /tmp/app-plugins/
 # Plugin folder names must be unique across runtime/plugins and agents/**/plugins.
 COPY --chmod=0755 agents/ /opt/app/agents/
 COPY --chmod=0755 runtime/bin/app-agent.sh /usr/local/bin/app-agent
+# A template link that leaves its template fails the build (app-agent also checks
+# it on every run): the fence would let the model read wherever it points.
+RUN for template in /opt/app/agents/*/workspace; do app-agent check "$template" || exit 1; done
 COPY --chmod=0755 runtime/bin/app-profiles.mjs /opt/app/bin/app-profiles.mjs
 COPY --chmod=0755 entrypoint.sh /usr/local/bin/app-entrypoint
 # Two places on purpose: dsh resolves plugin NAMES from $DSH_HOME/profiles/
