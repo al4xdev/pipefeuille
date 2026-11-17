@@ -6,11 +6,21 @@ lazy from fastapi import APIRouter, HTTPException, Request
 lazy from fastapi.responses import JSONResponse
 
 lazy from backend_logic import run as backend
+lazy from backend_logic._shared.agents.contracts import (
+    AgentsUnavailableError,
+    SubmissionTooLargeError,
+)
 lazy from backend_logic._shared.json.contracts import JsonValue
 lazy from backend_logic._shared.json.decode.contracts import DecodeText
 lazy from backend_logic._shared.note_name.contracts import NoteValidationError
 lazy from backend_logic.notes.list.contracts import ListNotes
 lazy from backend_logic.notes.save.contracts import NoteConflictError, Revision, SaveNote
+lazy from backend_logic.notes.summarize.contracts import DispatchSummary, NoteMissingError
+lazy from backend_logic.notes.summary.contracts import (
+    AgentAnswerRejectedError,
+    ReadSummary,
+    SummaryRunMissingError,
+)
 
 lazy from ..lifetime import ResourceSlot
 
@@ -80,9 +90,46 @@ def build_router(*, slot: ResourceSlot) -> APIRouter:
         }
         return JSONResponse(body)
 
+    async def summarize_note(name: str) -> JSONResponse:
+        try:
+            dispatched = await backend.run(
+                DispatchSummary(name=name), resources=slot.require(), agents=slot.require_agents()
+            )
+        except NoteValidationError as error:
+            raise HTTPException(status_code=422, detail=error.code) from None
+        except NoteMissingError:
+            raise HTTPException(status_code=404, detail="note_missing") from None
+        except SubmissionTooLargeError:
+            raise HTTPException(status_code=413, detail="note_too_large") from None
+        except AgentsUnavailableError:
+            raise HTTPException(status_code=503, detail="agents_unavailable") from None
+        body: JsonValue = {"name": dispatched.name, "run_id": dispatched.run_id}
+        return JSONResponse(body, status_code=202)
+
+    async def read_summary(run_id: str) -> JSONResponse:
+        try:
+            state = await backend.run(
+                ReadSummary(run_id=run_id), resources=slot.require(), agents=slot.require_agents()
+            )
+        except SummaryRunMissingError:
+            raise HTTPException(status_code=404, detail="summary_run_missing") from None
+        except AgentAnswerRejectedError:
+            # The agent answered against its contract: a fault upstream, not the client's.
+            raise HTTPException(status_code=502, detail="summary_rejected") from None
+        except AgentsUnavailableError:
+            raise HTTPException(status_code=503, detail="agents_unavailable") from None
+        body: JsonValue = {
+            "status": state.status,
+            "summary": None if state.summary is None else state.summary.text,
+            "reason": state.reason,
+        }
+        return JSONResponse(body)
+
     # add_api_route instead of @router.get: FastAPI's decorators are typed with Any, and the
     # mypy gate keeps Any out of every expression (§6).
     router = APIRouter()
     router.add_api_route("/notes", list_notes, methods=["GET"])
     router.add_api_route("/notes/{name}", save_note, methods=["PUT"])
+    router.add_api_route("/notes/{name}/summary", summarize_note, methods=["POST"])
+    router.add_api_route("/summaries/{run_id}", read_summary, methods=["GET"])
     return router

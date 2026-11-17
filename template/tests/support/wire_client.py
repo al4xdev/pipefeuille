@@ -44,6 +44,10 @@ class WireClient:
         response = await self._client.get(path)
         return WireResponse(response.status_code, decoding(DecodeText(response.text)))
 
+    async def post(self, path: str, content: bytes = b"") -> WireResponse:
+        response = await self._client.post(path, content=content)
+        return WireResponse(response.status_code, decoding(DecodeText(response.text)))
+
     async def put(self, path: str, content: bytes) -> WireResponse:
         response = await self._client.put(path, content=content)
         return WireResponse(response.status_code, decoding(DecodeText(response.text)))

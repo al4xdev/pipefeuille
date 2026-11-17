@@ -1,5 +1,6 @@
 lazy from dataclasses import dataclass
 
+lazy from ._shared.agents.contracts import AgentRuns
 lazy from ._shared.json.contracts import Validated
 lazy from .contracts import BackendRequest
 lazy from .notes.contracts import NotesResponse
@@ -13,3 +14,4 @@ class Container:
     roles: RolesResponse | None = None
     # Wrapped: decoding JSON null is a legitimate product, not "branch not run".
     converted: Validated | None = None
+    agents: AgentRuns | None = None

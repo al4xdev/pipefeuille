@@ -1,6 +1,6 @@
 lazy from backend_logic._shared.json.contracts import JsonValue
+lazy from backend_logic.notes.save.contracts import NoteRecord
 
-lazy from ..contracts import NoteRecord
 lazy from .pipeline import Pipe
 
 

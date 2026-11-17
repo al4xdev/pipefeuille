@@ -5,6 +5,9 @@ description = "Nested logical pipelines and a separate HTTP application"
 requires-python = ">=3.15"
 dependencies = [
     "fastapi>=0.115.0",
+    # The agent-runs port's harness adapter (backend_logic/_shared/agents/harness) calls the
+    # harness server with it; declared, so test_boundaries grants its import there.
+    "httpx>=0.28.0",
     "uvicorn[standard]>=0.34.0",
 ]
 
@@ -14,7 +17,6 @@ dev = [
     "mypy>=1.15.0",
     "pytest>=8.0.0",
     "pytest-asyncio>=0.25.0",
-    "httpx>=0.28.0",
 ]
 
 [tool.uv]

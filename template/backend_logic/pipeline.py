@@ -1,5 +1,8 @@
 lazy from typing import Self
 
+lazy from ._shared.agents.contracts import AgentRuns
+lazy from ._shared.agents.harness import run as opening
+lazy from ._shared.agents.harness.contracts import OpenHarness
 lazy from ._shared.json.contracts import JsonValue, Validated
 lazy from ._shared.json.decode import run as decoding
 lazy from ._shared.json.decode.contracts import DecodeText
@@ -26,9 +29,11 @@ class Pipe:
         pipe.container.input = initial
         return pipe
 
-    async def serve_notes(self, request: NotesRequest, *, resources: Resources | None) -> Self:
+    async def serve_notes(
+        self, request: NotesRequest, *, resources: Resources | None, agents: AgentRuns | None
+    ) -> Self:
         """Set notes through the notes family, which prepares and then uses its resources."""
-        self.container.notes = await noting.run(request, resources=resources)
+        self.container.notes = await noting.run(request, resources=resources, agents=agents)
         return self
 
     async def serve_roles(self, request: RolesRequest, *, model: Model) -> Self:
@@ -46,12 +51,19 @@ class Pipe:
         self.container.converted = Validated(encoding.run(request))
         return self
 
-    def materialize(self) -> NotesResponse | RolesResponse | JsonValue:
+    def open_agents(self, request: OpenHarness) -> Self:
+        """Set agents through the harness adapter. Sends nothing; called once per lifetime."""
+        self.container.agents = opening.run(request)
+        return self
+
+    def materialize(self) -> NotesResponse | RolesResponse | JsonValue | AgentRuns:
         """Require exactly the branch that ran; return its product."""
         if self.container.notes is not None:
             return self.container.notes
         if self.container.roles is not None:
             return self.container.roles
+        if self.container.agents is not None:
+            return self.container.agents
         if self.container.converted is not None:
             return self.container.converted.value
         raise RuntimeError("a backend branch must run before materialize")

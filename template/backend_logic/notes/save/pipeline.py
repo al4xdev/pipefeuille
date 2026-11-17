@@ -2,6 +2,7 @@ lazy from datetime import timedelta
 lazy from typing import Literal, Self
 
 lazy from backend_logic._shared.note_name import run as naming
+lazy from backend_logic.notes._shared.record.decode import run as decoding
 lazy from backend_logic.notes._shared.storage.contracts import FileStore
 lazy from backend_logic.notes._shared.storage.read import run as reading
 lazy from backend_logic.notes._shared.storage.read.contracts import Found, ReadDocument
@@ -22,7 +23,6 @@ lazy from .contracts import (
     SavedNote,
     SaveNote,
 )
-lazy from .decode import run as decoding
 lazy from .encode import run as encoding
 
 
