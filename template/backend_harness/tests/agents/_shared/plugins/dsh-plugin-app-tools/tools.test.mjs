@@ -21,9 +21,11 @@ const HEAD = `description: An agent.\n${LIMITS}`
 test('the names come from the shared plugins\' package.json (harness.tools)', async () => {
   const declared = async name => JSON.parse(await readFile(fileURLToPath(new URL(`../${name}/package.json`, plugin)), 'utf8')).harness.tools
   assert.deepEqual(toolsOf('dsh-plugin-app-fs'), await declared('dsh-plugin-app-fs'))
+  assert.deepEqual(toolsOf('dsh-plugin-app-sql'), await declared('dsh-plugin-app-sql'))
   // Today's set and order; a new opt-in tool shows up here first.
-  assert.deepEqual(KNOWN, ['read', 'write', 'edit', 'list', 'trash', 'apply_patch'])
+  assert.deepEqual(KNOWN, ['read', 'write', 'edit', 'list', 'trash', 'apply_patch', 'sql'])
   assert.equal(pluginOf('apply_patch'), 'dsh-plugin-app-fs')
+  assert.equal(pluginOf('sql'), 'dsh-plugin-app-sql')
   assert.equal(pluginOf('finalize_summary'), undefined)
   assert.deepEqual(toolsOf('dsh-plugin-app-summarizer'), [])
 })
@@ -145,5 +147,18 @@ test('the CLI prints APP_TOOLS, nothing without shared tools, and exits 2 on a b
     assert.match(unknown.stderr, /usage/)
   } finally {
     await rm(dir, { recursive: true, force: true })
+  }
+})
+// The cases every reader of agent.yml is held to (tests/agent_yml_cases.json): this one, the
+// image's, gives the verdict the case pins for agent_js (by default, the Python gate's).
+// tests/gates/test_agent_yml.py holds the two Python readers to the same file.
+test('agent.yml: agent.js gives every shared case the verdict it pins', async () => {
+  const file = new URL('../../../../agent_yml_cases.json', import.meta.url)
+  const { cases } = JSON.parse(await readFile(file, 'utf8'))
+  assert.ok(cases.length > 0)
+  for (const { id, text, problems, agent_js: pinned } of cases) {
+    const expected = pinned ?? (problems.length ? 'refuses' : 'accepts')
+    const { error } = parseAgent(text)
+    assert.equal(error === undefined ? 'accepts' : 'refuses', expected, `${id}: ${error ?? 'accepted'}`)
   }
 })

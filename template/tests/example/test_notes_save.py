@@ -9,6 +9,7 @@ import pytest
 
 from backend_logic._shared.json.contracts import JsonValue
 from backend_logic._shared.note_name.contracts import NoteName, NoteValidationError
+from backend_logic.notes._shared.record.decode import run as decoding
 from backend_logic.notes._shared.storage.contracts import FileStore
 from backend_logic.notes._shared.storage.lock import run as locking
 from backend_logic.notes._shared.storage.lock.contracts import LockRegistry, SelectLock
@@ -29,7 +30,6 @@ from backend_logic.notes.save.contracts import (
     SavedNote,
     SaveNote,
 )
-from backend_logic.notes.save.decode import run as decoding
 from backend_logic.notes.save.encode import run as encoding
 from backend_logic.notes.save.pipeline import Pipe
 from backend_logic.notes.save.run import run

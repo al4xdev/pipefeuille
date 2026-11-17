@@ -9,6 +9,7 @@ notes/.
 
 from pathlib import Path
 
+from agent_runs import FakeAgentRuns
 from declarations import Declaration, read_catalogues
 from wire_client import serving
 
@@ -48,7 +49,7 @@ async def test_the_declared_route_serves_the_bound_use_case(tmp_path: Path) -> N
     # sorted names), so the declaration and the HTTP adapter cannot drift apart.
     route = list_notes().settings["route"]
     assert isinstance(route, str)
-    async with serving(create_app(data_root=tmp_path / "data")) as client:
+    async with serving(create_app(data_root=tmp_path / "data", agents=FakeAgentRuns())) as client:
         for name in ("b", "a"):
             created = await client.put(f"/notes/{name}", b'{"body": "x"}')
             assert created.status == 200

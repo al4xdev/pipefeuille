@@ -6,7 +6,7 @@
 set -euo pipefail
 
 IMAGE="${IMAGE:-app-harness:local}"
-PORT="${PORT:-8081}"
+PORT="${PORT:-8080}"
 # A fixed name makes a second `serve` fail with our message, not docker's.
 NAME=app-harness-local
 # --pg: a Postgres container on this machine instead of the in-memory queue. Plain
@@ -34,7 +34,8 @@ usage: ./docker.sh [--pg [--pg-reset]] [--model-key] [mode] [args...]
                 model request fails with MISSING_CREDENTIAL: nothing is sent.
 
 modes (default: serve):
-  serve                         the harness server on http://127.0.0.1:$PORT (8081)
+  serve                         the HTTP application on http://127.0.0.1:$PORT (8080);
+                                the harness server stays on the container's loopback
   agent run NAME ID "input"     one agent through app-agent (ID: a lowercase uuid)
   agent resume ID "input"       its next turn (needs WORK= and SESSIONS=)
   run [args...]                 dsh --profile app
@@ -97,7 +98,9 @@ if [ "$mode" = serve ]; then
 fi
 
 # --- build: always, so the image never lags behind the code (cached: fast) ---
-docker build -t "$IMAGE" -f Dockerfile . || die "the image build failed (docker's output above)."
+# The named context `logic` is the template root: the Dockerfile copies only its
+# pyproject, lock, backend_logic/ and http_adapter/ from it.
+docker build -t "$IMAGE" -f Dockerfile --build-context logic=.. . || die "the image build failed (docker's output above)."
 [ "$mode" = build ] && exit 0
 
 # --pg: start (or reuse) the Postgres container; the server gets a libpq
@@ -166,10 +169,10 @@ esac
   echo "docker.sh: queue        $([ "$pg" = 1 ] && echo "postgres $PG_NAME (volume $PG_VOLUME), schema app_harness; psql: docker exec -it $PG_NAME psql -U postgres $PG_DATABASE" || echo "in memory, lost on stop (--pg for Postgres)")"
   echo "           model key    $([ "$model_key" = 1 ] && echo "DEEPSEEK_API_KEY passed (owner-authorized runs only)" || echo "none: model requests fail with MISSING_CREDENTIAL")"
   echo "           image        $IMAGE"
-  echo "           url          http://127.0.0.1:$PORT  (POST /dispatch, /status; Ctrl+C to stop)"
+  echo "           url          http://127.0.0.1:$PORT  (the HTTP application: PUT /notes/{name}, POST /notes/{name}/summary, GET /summaries/{run_id}; Ctrl+C to stop)"
 } >&2
-# Inside, the server listens on all interfaces so the port can be published; on the
-# host it is published on loopback only. (When the logic's HTTP application joins
-# the image, it becomes the published server and the harness goes back to loopback.)
+# Only the HTTP application is published (inside it listens on all interfaces, the
+# image's APP_HTTP_HOST), and on the host's loopback only. The harness server stays
+# on the container's loopback: nothing outside the container reaches it.
 exec docker run --rm "${TTY[@]}" "${ARGS[@]}" "${PG_ARGS[@]}" --name "$NAME" \
-  -e APP_HARNESS_HOST=0.0.0.0 -p "127.0.0.1:$PORT:8081" "$IMAGE" "$@"
+  -p "127.0.0.1:$PORT:8080" "$IMAGE" "$@"

@@ -1,5 +1,7 @@
 lazy from typing import Self
 
+lazy from backend_logic._shared.agents.contracts import AgentRuns
+
 lazy from .container import Container
 lazy from .contracts import NotesRequest, NotesResponse
 lazy from .list import run as listing
@@ -8,6 +10,10 @@ lazy from .prepare import run as preparing
 lazy from .prepare.contracts import PrepareResources, Resources
 lazy from .save import run as saving
 lazy from .save.contracts import SaveNote
+lazy from .summarize import run as summarizing
+lazy from .summarize.contracts import DispatchSummary
+lazy from .summary import run as reading_summary
+lazy from .summary.contracts import ReadSummary
 
 
 class Pipe:
@@ -38,6 +44,25 @@ class Pipe:
         )
         return self
 
+    async def summarize_note(
+        self, request: DispatchSummary, *, resources: Resources, agents: AgentRuns
+    ) -> Self:
+        """Set dispatched through the summarize child: one agent run handed over, for the
+        application's author as the tenant (its workspaces and its visibility)."""
+        self.container.dispatched = await summarizing.run(
+            request, store=resources.store, agents=agents, tenant=resources.author_id
+        )
+        return self
+
+    async def read_summary(
+        self, request: ReadSummary, *, resources: Resources, agents: AgentRuns
+    ) -> Self:
+        """Set state through the summary child: one status read; the answer admitted there."""
+        self.container.state = await reading_summary.run(
+            request, agents=agents, tenant=resources.author_id
+        )
+        return self
+
     def materialize(self) -> NotesResponse:
         """Require exactly the branch that ran; return its product."""
         if self.container.prepared is not None:
@@ -46,4 +71,8 @@ class Pipe:
             return self.container.listed
         if self.container.saved is not None:
             return self.container.saved
+        if self.container.dispatched is not None:
+            return self.container.dispatched
+        if self.container.state is not None:
+            return self.container.state
         raise RuntimeError("a notes branch must run before materialize")

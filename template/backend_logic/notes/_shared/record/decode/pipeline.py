@@ -4,8 +4,8 @@ lazy from typing import Self
 lazy from backend_logic._shared.json.contracts import JsonValue
 lazy from backend_logic._shared.note_name import run as naming
 lazy from backend_logic._shared.note_name.contracts import NoteValidationError
+lazy from backend_logic.notes.save.contracts import AuthorId, NoteRecord, Revision
 
-lazy from ..contracts import AuthorId, NoteRecord, Revision
 lazy from .container import Container
 
 

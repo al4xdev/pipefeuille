@@ -78,7 +78,9 @@ TEMPLATE_SUPPORT_FILES = (
     "boundaries.py",
     "declarations.py",
     "deviations.py",
+    "harness_agents.py",
     "tomllib.pyi",
+    "yaml.pyi",
 )
 # What a delegation can never open, by `suppress:` path (from the project root): the gates, the
 # template's support files, and the tool configuration itself.
