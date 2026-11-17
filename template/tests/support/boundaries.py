@@ -15,6 +15,7 @@ import ast
 import inspect
 import pydoc
 import re
+import sysconfig
 import tomllib
 from importlib import metadata
 from pathlib import Path
@@ -114,7 +115,8 @@ def import_names(distributions: set[str]) -> set[str]:
     }
 
 
-def declared_import_names(pyproject: Path) -> set[str]:
+def project_dependencies(pyproject: Path) -> list[str]:
+    """The requirement strings of `[project] dependencies`."""
     document = tomllib.loads(pyproject.read_text(encoding="utf-8"))
     project = document["project"]
     if not isinstance(project, dict):
@@ -122,7 +124,86 @@ def declared_import_names(pyproject: Path) -> set[str]:
     dependencies: object = project.get("dependencies", [])
     if not isinstance(dependencies, list):
         raise TypeError(f"{pyproject}: [project] dependencies must be a list")
-    return import_names(declared_distributions([str(spec) for spec in dependencies]))
+    return [str(spec) for spec in dependencies]
+
+
+def declared_import_names(pyproject: Path) -> set[str]:
+    return import_names(declared_distributions(project_dependencies(pyproject)))
+
+
+# Calls of the import machinery a module makes on a name: what makes it a loader candidate.
+IMPORT_CALLS = {
+    "import_module",
+    "__import__",
+    "find_spec",
+    "module_from_spec",
+    "spec_from_file_location",
+    "spec_from_loader",
+    "exec_module",
+    "load_module",
+}
+# Standard-library folders that are not library code the project could import.
+NOT_LIBRARY = {"site-packages", "test", "idlelib", "__phello__"}
+
+
+def module_name(relative: Path) -> str | None:
+    """`a/b/__init__.py` as `a.b`; None for a private module, or one in a private package."""
+    parts = relative.with_suffix("").parts
+    if parts and parts[-1] == "__init__":
+        parts = parts[:-1]
+    if not parts or any(part.startswith("_") or not part.isidentifier() for part in parts):
+        return None
+    return ".".join(parts)
+
+
+def tree_sources(root: Path) -> list[tuple[str, Path]]:
+    """(module, file) of every public Python module under a folder of the import path."""
+    found: list[tuple[str, Path]] = []
+    for path in sorted(root.rglob("*.py")):
+        relative = path.relative_to(root)
+        name = module_name(relative)
+        if name is not None and relative.parts[0] not in NOT_LIBRARY:
+            found.append((name, path))
+    return found
+
+
+def stdlib_sources() -> list[tuple[str, Path]]:
+    return tree_sources(Path(sysconfig.get_paths()["stdlib"]))
+
+
+def distribution_sources(distributions: set[str]) -> list[tuple[str, Path]]:
+    """(module, file) of every public Python module the installed distributions ship."""
+    found: list[tuple[str, Path]] = []
+    for name in sorted(distributions):
+        for file in metadata.distribution(name).files or []:
+            relative = Path(str(file))
+            module = module_name(relative) if relative.suffix == ".py" else None
+            if module is not None and ".." not in relative.parts:
+                found.append((module, Path(str(file.locate()))))
+    return found
+
+
+def calls_the_import_machinery(source: str) -> bool:
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.Call):
+            called = node.func
+            if isinstance(called, ast.Attribute) and called.attr in IMPORT_CALLS:
+                return True
+            if isinstance(called, ast.Name) and called.id in IMPORT_CALLS:
+                return True
+    return False
+
+
+def loader_candidates(sources: list[tuple[str, Path]]) -> list[str]:
+    """The modules whose own source calls the import machinery: each is reviewed by hand,
+    as a loader or not (tests/gates/test_boundaries.py, LOADERS and NOT_A_LOADER)."""
+    return sorted(
+        {
+            module
+            for module, path in sources
+            if calls_the_import_machinery(path.read_text(encoding="utf-8", errors="replace"))
+        }
+    )
 
 
 def exists(dotted: str) -> bool:
@@ -190,6 +271,13 @@ def signature_drift(function: Function, real: object, where: str, *, in_class: b
     declared = [(argument.arg, "POSITIONAL_ONLY") for argument in args.posonlyargs]
     declared += [(argument.arg, "POSITIONAL_OR_KEYWORD") for argument in args.args]
     defaults = len(args.defaults)
+    # Defaults align with the end of the positional list.
+    defaulted = {name for name, _ in declared[len(declared) - defaults :]}
+    defaulted |= {
+        argument.arg
+        for argument, default in zip(args.kwonlyargs, args.kw_defaults, strict=True)
+        if default is not None
+    }
     if "classmethod" in decorators and declared:
         declared = declared[1:]  # located through the class, the method is already bound
     required_count = len(declared) - defaults
@@ -215,6 +303,17 @@ def signature_drift(function: Function, real: object, where: str, *, in_class: b
             drift.append(f"{where}: takes no keyword-only parameter {argument.arg}")
         elif named.kind.name != "KEYWORD_ONLY":
             drift.append(f"{where}: {argument.arg} is {KIND[named.kind.name]}, not keyword-only")
+    # A default only on one side: the stub forbids a call the library accepts, or allows one
+    # the library refuses.
+    declared_names = {name for name, _ in declared} | {a.arg for a in args.kwonlyargs}
+    for parameter in parameters:
+        if parameter.name not in declared_names or parameter.kind.name.startswith("VAR_"):
+            continue
+        default: object = parameter.default
+        in_library = default is not parameter.empty
+        if in_library != (parameter.name in defaulted):
+            side = "the library, not in the stub" if in_library else "the stub, not in the library"
+            drift.append(f"{where}: {parameter.name} has a default in {side}")
     kinds = {parameter.kind.name for parameter in parameters}
     if args.vararg is not None and "VAR_POSITIONAL" not in kinds:
         drift.append(f"{where}: takes no *{args.vararg.arg}")
@@ -350,13 +449,39 @@ def exported_names(node: ast.stmt) -> list[str] | None:
     return None
 
 
-def all_names(node: ast.Assign) -> list[str] | None:
-    """The literal strings of `__all__ = [...]`, or None when it is not a literal list."""
-    if not isinstance(node.value, (ast.List, ast.Tuple)):
+def literal_names(value: ast.expr | None) -> list[str] | None:
+    """The strings of a literal list or tuple, or None when it is anything else."""
+    if not isinstance(value, (ast.List, ast.Tuple)):
         return None
-    names = [item.value for item in node.value.elts if isinstance(item, ast.Constant)]
+    names = [item.value for item in value.elts if isinstance(item, ast.Constant)]
     strings = [name for name in names if isinstance(name, str)]
-    return strings if len(strings) == len(node.value.elts) else None
+    return strings if len(strings) == len(value.elts) else None
+
+
+def all_entries(node: ast.stmt) -> list[str] | None:
+    """The names a statement adds to `__all__`, in every form it takes: `=`, an annotated
+    `__all__: list[str] = ...`, `+=`, `.extend([...])` and `.append("x")`. None for a statement
+    about `__all__` in any other form (a computed value, `.remove`), which is reported."""
+    if isinstance(node, ast.Assign) and len(node.targets) == 1:
+        return literal_names(node.value)
+    if isinstance(node, (ast.AnnAssign, ast.AugAssign)):
+        if isinstance(node, ast.AugAssign) and not isinstance(node.op, ast.Add):
+            return None
+        return literal_names(node.value)
+    if isinstance(node, ast.Expr) and isinstance(node.value, ast.Call):
+        call = node.value
+        method = call.func.attr if isinstance(call.func, ast.Attribute) else ""
+        if method == "extend" and len(call.args) == 1:
+            return literal_names(call.args[0])
+        if method == "append" and len(call.args) == 1:
+            item = call.args[0]
+            if isinstance(item, ast.Constant) and isinstance(item.value, str):
+                return [item.value]
+    return None
+
+
+def mentions_all(node: ast.stmt) -> bool:
+    return any(isinstance(item, ast.Name) and item.id == "__all__" for item in ast.walk(node))
 
 
 def stub_drift(stub: str, module: str) -> list[str]:
@@ -372,7 +497,18 @@ def stub_drift(stub: str, module: str) -> list[str]:
         return [f"{module}: not installed"]
     drift: list[str] = []
     for node in ast.parse(stub).body:
-        if isinstance(node, ast.ClassDef):
+        if mentions_all(node):
+            # Every name __all__ lists is public, however it got there: a plain import listed
+            # in it is a re-export too, so each must exist in the library.
+            listed = all_entries(node)
+            if listed is None:
+                drift.append(f"{module}: line {node.lineno} sets __all__ in a form not read")
+            drift += [
+                f"{module}.{name}: listed in __all__, not in the library"
+                for name in listed or []
+                if not exists(f"{module}.{name}")
+            ]
+        elif isinstance(node, ast.ClassDef):
             drift += class_drift(node, module)
         elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             if not exists(f"{module}.{node.name}"):
@@ -392,16 +528,6 @@ def stub_drift(stub: str, module: str) -> list[str]:
             drift += [
                 f"{module}.{name}: re-exported by the stub, not in the library"
                 for name in exported
-                if not exists(f"{module}.{name}")
-            ]
-        elif (
-            isinstance(node, ast.Assign)
-            and [ast.unparse(target) for target in node.targets] == ["__all__"]
-            and (listed := all_names(node)) is not None
-        ):
-            drift += [
-                f"{module}.{name}: listed in __all__, not in the library"
-                for name in listed
                 if not exists(f"{module}.{name}")
             ]
         elif not is_inert(node) and not is_typing_only(node):
