@@ -1,8 +1,8 @@
 """Guard the gate configuration that ships with the template.
 
-This is the one test module allowed to hold Any: tomllib returns dict[str, Any] and has no
-typed alternative. Values are narrowed with isinstance before any comparison, and the
-pyproject override exempting this module is explained in docs/design/template-decisions.md (C2).
+This module is checked by the same mypy it guards, with no Any in any expression: tomllib is
+read through the stub tests/support/tomllib.pyi (values typed `object`), and every value is
+narrowed with isinstance before any comparison (docs/design/template-decisions.md, C2).
 
 The configuration may be tightened freely. Loosening it is a deviation: the project never
 edits this file; the owner approves a `mypy:<module>` entry in architecture-log.md instead
@@ -41,21 +41,20 @@ MYPY_ERROR_CODES = {
     "exhaustive-match",
     "deprecated",
 }
-# The template's three Any boundaries (C2). The json decoder is matched by suffix so it may
-# move with the mechanism (guide §2, `_shared/` block) without a gate edit.
-TEMPLATE_BOUNDARY_SUFFIX = "_shared.json.decode.*"
-TEMPLATE_TEST_BOUNDARIES = {"tests.gates.test_config", "wire_client"}
+# The template has no Any boundary (C2): every override of disallow_any_expr must be named by
+# an owner-approved `mypy:<module>` entry of architecture-log.md (D8).
+
+
+def table(value: object, name: str) -> dict[str, object]:
+    """A TOML table with its keys as str. isinstance alone would narrow to dict[Any, Any]."""
+    if not isinstance(value, dict):
+        raise TypeError(f"pyproject [{name}] must be a table")
+    return {str(key): item for key, item in value.items()}
 
 
 def tool_section(name: str) -> dict[str, object]:
     document = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
-    tool = document["tool"]
-    if not isinstance(tool, dict):
-        raise TypeError("pyproject [tool] must be a table")
-    section = tool[name]
-    if not isinstance(section, dict):
-        raise TypeError(f"pyproject [tool.{name}] must be a table")
-    return {str(key): value for key, value in section.items()}
+    return table(table(document["tool"], "tool")[name], f"tool.{name}")
 
 
 def strings(value: object) -> set[str]:
@@ -95,8 +94,7 @@ def test_run_composition_is_left_to_the_author_not_the_formatter() -> None:
     # reformatting it anyway.
     ruff = tool_section("ruff")
     assert ruff["force-exclude"] is True
-    formatter = ruff["format"]
-    assert isinstance(formatter, dict)
+    formatter = table(ruff["format"], "tool.ruff.format")
     # Exactly these: anything more would take code out of the formatter.
     assert strings(formatter["exclude"]) == {"backend_logic/**/run.py", "docs/**/*.md"}
 
@@ -105,8 +103,7 @@ def test_ruff_rules_are_never_switched_off() -> None:
     ruff = tool_section("ruff")
     assert isinstance(ruff["line-length"], int)
     assert ruff["line-length"] <= 100
-    lint = ruff["lint"]
-    assert isinstance(lint, dict)
+    lint = table(ruff["lint"], "tool.ruff.lint")
     assert strings(lint["select"]) >= RUFF_RULES
     loosening = {"ignore", "extend-ignore", "per-file-ignores", "unfixable"} & set(lint)
     loosening |= {"exclude", "extend-exclude"} & set(lint)
@@ -119,8 +116,7 @@ def test_ruff_rules_are_never_switched_off() -> None:
 def test_pytest_collects_every_test_folder() -> None:
     # A gate that is never collected is a gate switched off.
     pytest = tool_section("pytest")
-    options = pytest["ini_options"]
-    assert isinstance(options, dict)
+    options = table(pytest["ini_options"], "tool.pytest.ini_options")
     assert strings(options["testpaths"]) == {"tests"}
     addopts = options["addopts"]
     assert isinstance(addopts, str)
@@ -130,7 +126,7 @@ def test_pytest_collects_every_test_folder() -> None:
 
 
 def test_mypy_gate_keeps_any_out_of_expressions_everywhere() -> None:
-    # §6: disallow_any_expr is global; only template or owner-approved boundaries lift it.
+    # §6: disallow_any_expr is global; only owner-approved boundaries lift it.
     mypy = tool_section("mypy")
     for flag in MYPY_FLAGS:
         assert mypy[flag] is True, flag
@@ -149,21 +145,17 @@ def test_mypy_gate_keeps_any_out_of_expressions_everywhere() -> None:
         "modules",
     } & set(mypy)
     assert not hiding, f"mypy may not be narrowed or silenced globally: {sorted(hiding)}"
-    overrides = mypy["overrides"]
-    assert isinstance(overrides, list)
+    # The template ships no override: the key exists only once an approved entry needs one.
+    overrides = mypy.get("overrides", [])
+    if not isinstance(overrides, list):
+        raise TypeError("pyproject [[tool.mypy.overrides]] must be an array of tables")
     exempt: set[str] = set()
-    for override in overrides:
-        assert isinstance(override, dict)
+    for entry in overrides:
+        override = table(entry, "tool.mypy.overrides")
         # An override may only lift disallow_any_expr: no ignore_errors, no follow_imports.
         assert set(override) == {"module", "disallow_any_expr"}, sorted(override)
         assert override["disallow_any_expr"] is False
         exempt |= strings(override["module"])
     approved = approved_targets(ROOT, "mypy")
-    unapproved = sorted(
-        module
-        for module in exempt
-        if not module.endswith(TEMPLATE_BOUNDARY_SUFFIX)
-        and module not in TEMPLATE_TEST_BOUNDARIES
-        and module not in approved
-    )
+    unapproved = sorted(module for module in exempt if module not in approved)
     assert not unapproved, f"propose `mypy:<module>` (AGENTS.md, Deviations): {unapproved}"
