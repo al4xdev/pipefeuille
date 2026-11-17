@@ -13,6 +13,7 @@ import io
 import tokenize
 from pathlib import Path
 
+import pytest
 from deviations import approved, approved_targets, log_path, problems, reaches_template_rules
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -53,6 +54,7 @@ def escape_hatches(source: str) -> list[str]:
 def test_log_reader_grants_only_owner_approved_entries() -> None:
     log = (
         "# Architecture log\n"
+        "## Entry template\n"
         "```markdown\n"
         "## Entries\n"
         "### fenced example\n"
@@ -60,19 +62,14 @@ def test_log_reader_grants_only_owner_approved_entries() -> None:
         '- Approved by owner: 2026-01-01 "yes"\n'
         "- Exempts: `mypy:fenced.*`\n"
         "```\n"
-        "## Entries\n"
         "<!--\n"
-        "### hidden in a comment\n"
+        "## Entries\n"
+        "### commented out\n"
         "- Status: approved\n"
         '- Approved by owner: 2026-01-01 "yes"\n'
         "- Exempts: `mypy:commented.*`\n"
         "-->\n"
-        "~~~\n"
-        "### hidden in a tilde fence\n"
-        "- Status: approved\n"
-        '- Approved by owner: 2026-01-01 "yes"\n'
-        "- Exempts: `mypy:tilde.*`\n"
-        "~~~\n"
+        "## Entries\n"
         "### proposed\n"
         "- Status: proposed\n"
         "- Exempts: `mypy:proposed.*`\n"
@@ -83,10 +80,16 @@ def test_log_reader_grants_only_owner_approved_entries() -> None:
         "### approved\n"
         "- Status: approved\n"
         '- Approved by owner: 2026-01-02 "ok, exempt the pg boundary"\n'
-        "- Exempts: `mypy:backend_logic.pg.*`, `eager:pdfparse`, `gate:test_style.py`\n"
+        "- Exempts: `mypy:backend_logic.pg.*`, `eager:pdfparse`\n"
+        "### approved with one unknown token\n"
+        "- Status: approved\n"
+        '- Approved by owner: 2026-01-02 "ok, exempt both"\n'
+        "- Exempts: `eager:os`, `gate:test_style.py`\n"
         "### free text\n"
         "- Status: done\n"
     )
+    # Fenced and commented examples outside `## Entries` are not read; a problem anywhere in an
+    # entry voids all its tokens (`eager:os` is not granted).
     assert [(e.kind, e.target) for e in approved(log)] == [
         ("mypy", "backend_logic.pg.*"),
         ("eager", "pdfparse"),
@@ -94,13 +97,24 @@ def test_log_reader_grants_only_owner_approved_entries() -> None:
     assert problems(log) == [
         "approved without the owner's words: approved without "
         '`Approved by owner: YYYY-MM-DD "..."` or `Approved by delegation: YYYY-MM-DD "..."`',
-        "approved: unknown exemption `gate:test_style.py`",
+        "approved with one unknown token: unknown exemption `gate:test_style.py`",
         "free text: Status must be one of proposed, approved, rejected",
     ]
 
 
+OWNER = '- Approved by owner: 2026-03-01 "yes, exempt it"\n'
 DELEGATION = '- Approved by delegation: 2026-03-01 "decide the boundaries, with a critic"\n'
 CRITIC = "- Critic: 2026-03-02 critic subagent (intermediate model) checked {}; verdict: {}\n"
+CRITIC_FORM = "`Critic: YYYY-MM-DD <critic> checked <what>; verdict: approve`"
+OWNER_FORM = '`Approved by owner: YYYY-MM-DD "..."` or `Approved by delegation: YYYY-MM-DD "..."`'
+
+
+def valid(title: str = "valid", token: str = "eager:granted") -> str:
+    return f"### {title}\n- Status: approved\n{OWNER}- Exempts: `{token}`\n"
+
+
+def entry(*fields: str) -> str:
+    return "## Entries\n### e\n" + "".join(f"{field}\n" for field in fields)
 
 
 def test_log_reader_grants_delegated_entries_only_with_quote_and_critic() -> None:
@@ -146,7 +160,7 @@ def test_log_reader_grants_delegated_entries_only_with_quote_and_critic() -> Non
         "- Exempts: `eager:widened`, `suppress:tests/gates/test_style.py`, `mypy:tests.*`\n"
         "### both approvals\n"
         "- Status: approved\n"
-        '- Approved by owner: 2026-03-01 "yes, exempt it"\n'
+        f"{OWNER}"
         f"{DELEGATION}"
         f"{CRITIC.format('the cost', 'approve')}"
         "- Exempts: `eager:both`\n"
@@ -164,10 +178,9 @@ def test_log_reader_grants_delegated_entries_only_with_quote_and_critic() -> Non
         ("mypy", "backend_logic.pg.*", "owner-approved"),
         ("eager", "pdfparse", "delegated"),
     ]
-    critic_form = "`Critic: YYYY-MM-DD <critic> checked <what>; verdict: approve`"
     assert problems(log) == [
-        f"delegated without critic: approved by delegation without {critic_form}",
-        f"delegated with an unformed critic: approved by delegation without {critic_form}",
+        f"delegated without critic: approved by delegation without {CRITIC_FORM}",
+        f"delegated with an unformed critic: approved by delegation without {CRITIC_FORM}",
         "delegated without the owner's words: approved by delegation without the owner's "
         'words, `Approved by delegation: YYYY-MM-DD "..."`',
         "delegated against the critic: approved by delegation, but the critic's verdict is reject",
@@ -180,34 +193,266 @@ def test_log_reader_grants_delegated_entries_only_with_quote_and_critic() -> Non
     ]
 
 
+# Each case: a log, what it grants, and its exact problems. Markup the rendered page hides is
+# read as CommonMark outside `## Entries` and is a problem inside it; a problem of the section
+# voids every entry, a problem of an entry voids all its tokens.
+HIDDEN_OR_AMBIGUOUS = {
+    "comment inside Entries": (
+        "## Entries\n" + valid() + "<!--\n" + valid("hidden", "eager:hidden") + "-->\n",
+        [],
+        ["line 6: an HTML comment inside `## Entries`"],
+    ),
+    "comment on an Exempts line": (
+        entry("- Status: approved", OWNER.strip(), "- Exempts: `eager:x` <!-- `eager:y` -->"),
+        [],
+        ["line 5: an HTML comment inside `## Entries`"],
+    ),
+    "fence inside Entries": (
+        "## Entries\n" + valid() + "~~~\n" + valid("fenced", "eager:fenced") + "~~~\n",
+        [],
+        ["line 6: a code fence inside `## Entries`"],
+    ),
+    "a shorter fence does not close a longer one": (
+        "````\n```\n## Entries\n" + valid() + "````\n",
+        [],
+        ["the log has no visible `## Entries` section"],
+    ),
+    "a tilde line does not close a backtick fence": (
+        "```\n~~~\n```\n## Entries\n" + valid(),
+        ["eager:granted"],
+        [],
+    ),
+    "a comment opened after a closed one on the same line": (
+        "<!-- closed --> <!-- open\n## Entries\n" + valid() + "-->\n",
+        [],
+        ["the log has no visible `## Entries` section"],
+    ),
+    "a comment marker written as code is text": (
+        "Skip `<!--` lines.\n## Entries\n"
+        + valid()
+        + "- Decision and reason: drop the `-->` hack\n",
+        ["eager:granted"],
+        [],
+    ),
+    "a real comment and a marker written as code on one line": (
+        "Note <!-- a real one --> and `<!--` as code.\n## Entries\n" + valid(),
+        ["eager:granted"],
+        [],
+    ),
+    "no Entries section": (
+        "# Architecture log\n" + valid(),
+        [],
+        ["the log has no visible `## Entries` section"],
+    ),
+    "a level-1 heading ends Entries": (
+        "## Entries\n" + valid() + "# Appendix\n" + valid("after", "eager:after"),
+        ["eager:granted"],
+        [],
+    ),
+    "unclosed fence": (
+        "## Entries\n" + valid() + "## Notes\n```\n",
+        [],
+        ["the log ends inside a code fence"],
+    ),
+    "unclosed comment": (
+        "## Entries\n" + valid() + "## Notes\n<!--\n",
+        [],
+        ["the log ends inside an HTML comment"],
+    ),
+    "second Entries section": (
+        "## Entries\n" + valid() + "## Entries\n" + valid("again", "eager:again"),
+        [],
+        ["line 6: a second `## Entries` section"],
+    ),
+    "heading below ### inside an entry": (
+        "## Entries\n" + valid() + "#### sub\n",
+        [],
+        ["valid: a heading below `###` inside an entry"],
+    ),
+    "field before any entry": (
+        "## Entries\n- Status: approved\n" + valid(),
+        [],
+        ["line 2: `Status` outside an entry"],
+    ),
+    "repeated Status": (
+        entry("- Status: proposed", "- Status: approved", OWNER.strip(), "- Exempts: `eager:x`"),
+        [],
+        ["e: `Status` appears more than once"],
+    ),
+    "empty field next to an owner approval": (
+        entry(
+            "- Status: approved",
+            OWNER.strip(),
+            "- Approved by delegation:",
+            "- Exempts: `suppress:tests/gates/test_style.py`",
+        ),
+        [],
+        ["e: `Approved by delegation` is empty"],
+    ),
+    "repeated Critic": (
+        entry(
+            "- Status: approved",
+            DELEGATION.strip(),
+            CRITIC.format("a", "reject").strip(),
+            CRITIC.format("a", "approve").strip(),
+            "- Exempts: `eager:x`",
+        ),
+        [],
+        [
+            "e: `Critic` appears more than once",
+            "e: approved by delegation, but the critic's verdict is reject",
+        ],
+    ),
+    "two verdicts on one Critic line": (
+        entry(
+            "- Status: approved",
+            DELEGATION.strip(),
+            "- Critic: 2026-03-02 critic checked x; verdict: reject; verdict: approve",
+            "- Exempts: `eager:x`",
+        ),
+        [],
+        [f"e: approved by delegation without {CRITIC_FORM}"],
+    ),
+    "indented field": (
+        entry("- Status: approved", f"  {OWNER.strip()}", "- Exempts: `eager:x`"),
+        [],
+        ["e: `Approved by owner` must start at column 0", f"e: approved without {OWNER_FORM}"],
+    ),
+    "Exempts with prose": (
+        entry("- Status: approved", OWNER.strip(), "- Exempts: `eager:x` and more"),
+        [],
+        ["e: Exempts must be `none` or backticked tokens separated by `, `"],
+    ),
+    "Exempts with an unclosed backtick": (
+        entry("- Status: approved", OWNER.strip(), "- Exempts: `eager:x`, `eager:y"),
+        [],
+        ["e: Exempts must be `none` or backticked tokens separated by `, `"],
+    ),
+    "Exempts none with a note": (
+        entry("- Status: approved", OWNER.strip(), "- Exempts: none (a note)"),
+        [],
+        ["e: Exempts must be `none` or backticked tokens separated by `, `"],
+    ),
+    "Exempts none": (
+        entry("- Status: approved", OWNER.strip(), "- Exempts: none"),
+        [],
+        [],
+    ),
+    "non-ASCII digits in the Critic date": (
+        entry(
+            "- Status: approved",
+            DELEGATION.strip(),
+            "- Critic: ٢٠٢٠-٠١-٠١ critic checked x; verdict: approve",
+            "- Exempts: `eager:x`",
+        ),
+        [],
+        [f"e: approved by delegation without {CRITIC_FORM}"],
+    ),
+    "a date that does not exist": (
+        entry(
+            "- Status: approved", '- Approved by owner: 2026-99-99 "yes"', "- Exempts: `eager:x`"
+        ),
+        [],
+        [f"e: approved without {OWNER_FORM}"],
+    ),
+    "an ISO week date is not a calendar day": (
+        entry(
+            "- Status: approved", '- Approved by owner: 2026-W10-1 "yes"', "- Exempts: `eager:x`"
+        ),
+        [],
+        [f"e: approved without {OWNER_FORM}"],
+    ),
+    "blank quote": (
+        entry(
+            "- Status: approved", '- Approved by owner: 2026-03-01 "   "', "- Exempts: `eager:x`"
+        ),
+        [],
+        [f"e: approved without {OWNER_FORM}"],
+    ),
+    "two quoted spans": (
+        entry(
+            "- Status: approved",
+            '- Approved by owner: 2026-03-01 "a" unquoted "b"',
+            "- Exempts: `eager:x`",
+        ),
+        [],
+        [f"e: approved without {OWNER_FORM}"],
+    ),
+    "no space before the quote": (
+        entry("- Status: approved", '- Approved by owner: 2026-03-01"yes"', "- Exempts: `eager:x`"),
+        [],
+        [f"e: approved without {OWNER_FORM}"],
+    ),
+    "zero-width critic and object": (
+        entry(
+            "- Status: approved",
+            DELEGATION.strip(),
+            "- Critic: 2026-03-02 \u200b checked \u200b; verdict: approve",
+            "- Exempts: `eager:x`",
+        ),
+        [],
+        [f"e: approved by delegation without {CRITIC_FORM}"],
+    ),
+}
+
+
+@pytest.mark.parametrize("case", HIDDEN_OR_AMBIGUOUS)
+def test_log_reader_voids_hidden_repeated_or_malformed_lines(case: str) -> None:
+    log, granted, expected = HIDDEN_OR_AMBIGUOUS[case]
+    assert [f"{e.kind}:{e.target}" for e in approved(log)] == granted
+    assert problems(log) == expected
+
+
 def test_template_rule_reach_sees_paths_and_wider_patterns() -> None:
     tokens = [
         "suppress:tests/gates/test_config.py",
         "suppress:tests/gates",
+        "suppress:./tests/gates/test_style.py",
+        "suppress:tests//gates/test_style.py",
         "suppress:tests/support/deviations.py",
         "suppress:tests/support/wire_client.py",
         "suppress:tests/gates_extra/x.py",
         "suppress:http_adapter/app.py",
         "mypy:tests.gates.test_style",
         "mypy:tests.gates.*",
+        "mypy:tests.gates.test_added_later",
         "mypy:tests.*",
         "mypy:*",
+        "mypy:tests.*.test_style",
+        "mypy:tests.*.gates.test_style",
+        "mypy:*.test_deviations",
+        "mypy:tests.support.*",
+        "mypy:*.deviations",
+        "mypy:tests.support.deviations",
         "mypy:deviations",
         "mypy:architecture.*",
+        "mypy:tests.g*",
         "mypy:tests.notes.*",
+        "mypy:*.notes.*",
+        "mypy:wire_client",
         "mypy:backend_logic.*",
         "eager:tests.gates",
     ]
     assert [token for token in tokens if reaches_template_rules(token)] == [
         "suppress:tests/gates/test_config.py",
         "suppress:tests/gates",
+        "suppress:./tests/gates/test_style.py",
+        "suppress:tests//gates/test_style.py",
         "suppress:tests/support/deviations.py",
         "mypy:tests.gates.test_style",
         "mypy:tests.gates.*",
+        "mypy:tests.gates.test_added_later",
         "mypy:tests.*",
         "mypy:*",
+        "mypy:tests.*.test_style",
+        "mypy:tests.*.gates.test_style",
+        "mypy:*.test_deviations",
+        "mypy:tests.support.*",
+        "mypy:*.deviations",
+        "mypy:tests.support.deviations",
         "mypy:deviations",
         "mypy:architecture.*",
+        "mypy:tests.g*",
     ]
 
 
