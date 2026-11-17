@@ -267,7 +267,7 @@ The complete guide is in [vertical-pipelines.md](vertical-pipelines.md); the nam
 
 - **Rule:** `tests/gates/` holds the global gates (style, architecture, config) that every project keeps unchanged; they read `backend_logic`/`http_adapter` and, for the agents (E3), `backend_harness/agents`, its captures and its profile, and mention the domain only inside synthetic self-test strings (no gate names the example agent). `tests/mechanisms/` holds the tests of the shipped mechanisms and moves with them. `tests/example/` holds the example-domain tests and is deleted with `notes/` and `roles/`; the example agent goes with them (`backend_harness/agents/summarizer/`, its baseline `backend_harness/tests/baseline/app.summarizer.txt`, its entry in the `AGENTS` table), together with the fake of the agent-runs port, `tests/support/agent_runs.py`, a project helper. A project's own tests go in `tests/<family>/`. Helpers shared by test folders live in `tests/support/`, which is on the pytest `pythonpath`. Test folders have no `__init__.py`.
 - **Why:** with every test flat in `tests/`, nothing told a new project which files survive a domain swap; an agent could delete a gate together with the example, or keep example tests that pin the old domain.
-- **Measured:** a copy of the template without `tests/example/` gives a clean mypy and 228 passing tests (gates and mechanisms), against 313 with it.
+- **Measured:** a copy of the template without `tests/example/` gives a clean mypy and 231 passing tests (gates and mechanisms), against 316 with it.
 - **Gate:** none mechanical; the measurement above is the evidence. Re-run it after changing a gate.
 - **Does not prove:** that a future gate stays domain-free; review a new gate for imports of `notes`/`roles`.
 
