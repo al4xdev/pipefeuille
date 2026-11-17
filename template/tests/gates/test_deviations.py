@@ -18,8 +18,12 @@ from deviations import (
     TEMPLATE_SUPPORT_FILES,
     approved,
     approved_targets,
-    covers_a_whole_tree,
+    fence_closes,
+    fence_opening,
+    has_closing_sequence,
+    heading,
     log_path,
+    names_a_pattern,
     problems,
     reaches_template_rules,
 )
@@ -70,13 +74,14 @@ def test_log_reader_grants_only_owner_approved_entries() -> None:
         '- Approved by owner: 2026-01-01 "yes"\n'
         "- Exempts: `mypy:fenced.*`\n"
         "```\n"
-        "<!--\n"
+        "~~~~\n"
         "## Entries\n"
-        "### commented out\n"
+        "### fenced with a longer tilde fence\n"
+        "~~~\n"
         "- Status: approved\n"
         '- Approved by owner: 2026-01-01 "yes"\n'
-        "- Exempts: `mypy:commented.*`\n"
-        "-->\n"
+        "- Exempts: `mypy:tilde.*`\n"
+        "~~~~\n"
         "## Entries\n"
         "### proposed\n"
         "- Status: proposed\n"
@@ -96,7 +101,7 @@ def test_log_reader_grants_only_owner_approved_entries() -> None:
         "### free text\n"
         "- Status: done\n"
     )
-    # Fenced and commented examples outside `## Entries` are not read; a problem anywhere in an
+    # Fenced examples outside `## Entries` are not read; a problem anywhere in an
     # entry voids all its tokens (`eager:os` is not granted).
     assert [(e.kind, e.target) for e in approved(log)] == [
         ("mypy", "backend_logic.pg.*"),
@@ -201,6 +206,10 @@ def test_log_reader_grants_delegated_entries_only_with_quote_and_critic() -> Non
     ]
 
 
+MARK = "an HTML comment marker (the log holds no HTML comments)"
+ODD_SPACE = "whitespace other than space or tab on a fence or heading"
+
+
 # Each case: a log, what it grants, and its exact problems. Markup the rendered page hides is
 # read as CommonMark outside `## Entries` and is a problem inside it; a problem of the section
 # voids every entry, a problem of an entry voids all its tokens.
@@ -208,17 +217,17 @@ HIDDEN_OR_AMBIGUOUS = {
     "comment inside Entries": (
         "## Entries\n" + valid() + "<!--\n" + valid("hidden", "eager:hidden") + "-->\n",
         [],
-        ["line 6: an HTML comment inside `## Entries`"],
+        [f"line 6: {MARK}", f"line 11: {MARK}"],
     ),
     "comment on an Exempts line": (
         entry("- Status: approved", OWNER.strip(), "- Exempts: `eager:x` <!-- `eager:y` -->"),
         [],
-        ["line 5: an HTML comment inside `## Entries`"],
+        [f"line 5: {MARK}"],
     ),
     "fence inside Entries": (
         "## Entries\n" + valid() + "~~~\n" + valid("fenced", "eager:fenced") + "~~~\n",
         [],
-        ["line 6: a code fence inside `## Entries`"],
+        ["line 6: a code fence inside `## Entries`", "line 11: a code fence inside `## Entries`"],
     ),
     "a shorter fence does not close a longer one": (
         "````\n```\n## Entries\n" + valid() + "````\n",
@@ -233,19 +242,71 @@ HIDDEN_OR_AMBIGUOUS = {
     "a comment opened after a closed one on the same line": (
         "<!-- closed --> <!-- open\n## Entries\n" + valid() + "-->\n",
         [],
-        ["the log has no visible `## Entries` section"],
+        [f"line 1: {MARK}", f"line 7: {MARK}"],
     ),
-    "a comment marker written as code is text": (
-        "Skip `<!--` lines.\n## Entries\n"
-        + valid()
-        + "- Decision and reason: drop the `-->` hack\n",
-        ["eager:granted"],
+    "a comment marker written as code is refused too": (
+        "Skip `<!--` lines.\n## Entries\n" + valid() + "- Decision and reason: drop `-->`\n",
         [],
+        [f"line 1: {MARK}", f"line 7: {MARK}"],
     ),
-    "a real comment and a marker written as code on one line": (
-        "Note <!-- a real one --> and `<!--` as code.\n## Entries\n" + valid(),
-        ["eager:granted"],
+    "a one-line comment before Entries": (
+        "Note <!-- a closed one -->.\n## Entries\n" + valid(),
         [],
+        [f"line 1: {MARK}"],
+    ),
+    "an escaped backtick opening a comment inside Entries": (
+        "## Entries\n" + valid() + "\\`<!--\n" + valid("hidden", "eager:hidden") + "`-->`\n",
+        [],
+        [f"line 6: {MARK}", f"line 11: {MARK}"],
+    ),
+    "an escaped backtick inside Entries": (
+        "## Entries\n" + valid() + "- Decision and reason: a \\` literal\n",
+        [],
+        ["line 6: an escaped backtick inside `## Entries`"],
+    ),
+    "an HTML tag inside Entries": (
+        "## Entries\n" + valid() + "- Decision and reason: see <details> below\n",
+        [],
+        ["line 6: an HTML tag inside `## Entries`"],
+    ),
+    "a closing tag inside Entries": (
+        "## Entries\n" + valid() + "</details>\n",
+        [],
+        ["line 6: a line that starts an HTML block"],
+    ),
+    "an HTML block folding Entries away": (
+        "<details>\n\n## Entries\n" + valid() + "</details>\n",
+        [],
+        ["line 1: a line that starts an HTML block", "line 8: a line that starts an HTML block"],
+    ),
+    "a no-break space after a closing fence": (
+        "```\n```\u00a0\n## Entries\n" + valid() + "```\n",
+        [],
+        # The refused line does not close the fence either, as on the page.
+        [f"line 2: {ODD_SPACE}", "the log has no visible `## Entries` section"],
+    ),
+    "a no-break space in a heading": (
+        "## Entries\u00a0\n" + valid(),
+        [],
+        [f"line 1: {ODD_SPACE}", "the log has no visible `## Entries` section"],
+    ),
+    "a closing sequence on the Entries heading": (
+        "## Entries ##\n" + valid(),
+        [],
+        [
+            "line 1: a heading with a closing `#` sequence",
+            "the log has no visible `## Entries` section",
+        ],
+    ),
+    "an entry heading that renders empty": (
+        "## Entries\n" + valid() + "### ###\n" + valid("next", "eager:next"),
+        [],
+        ["line 6: a heading with a closing `#` sequence"],
+    ),
+    "a setext underline inside Entries": (
+        "## Entries\n" + valid() + "Retitled\n---\n",
+        [],
+        ["line 7: a line of only `=` or `-` inside `## Entries`"],
     ),
     "no Entries section": (
         "# Architecture log\n" + valid(),
@@ -265,7 +326,7 @@ HIDDEN_OR_AMBIGUOUS = {
     "unclosed comment": (
         "## Entries\n" + valid() + "## Notes\n<!--\n",
         [],
-        ["the log ends inside an HTML comment"],
+        [f"line 7: {MARK}"],
     ),
     "second Entries section": (
         "## Entries\n" + valid() + "## Entries\n" + valid("again", "eager:again"),
@@ -411,6 +472,29 @@ def test_log_reader_voids_hidden_repeated_or_malformed_lines(case: str) -> None:
     assert problems(log) == expected
 
 
+def test_fence_and_heading_readers_follow_commonmark() -> None:
+    # Directly, because the log reader refuses odd whitespace before these ever see it.
+    assert fence_opening("````") == ("`", 4)
+    assert fence_opening("~~~ python") == ("~", 3)
+    assert fence_opening("    ```") is None
+    assert fence_opening("``` a`b") is None
+    assert [
+        fence_closes(line, ("`", 4))
+        for line in ("````", "`````  \t", "```", "~~~~", "````\u00a0", "```` x", "    ````")
+    ] == [True, True, False, False, False, False, False]
+    assert [
+        heading(line)
+        for line in ("## Entries", "##\tEntries  ", "#hashtag", "    ## Entries", "####### x")
+    ] == [(2, "Entries"), (2, "Entries"), None, None, None]
+    assert [has_closing_sequence(t) for t in ("Entries ##", "###", "", "C#", "Entries \\#")] == [
+        True,
+        True,
+        False,
+        False,
+        False,
+    ]
+
+
 def test_template_rule_reach_sees_paths_and_wider_patterns() -> None:
     tokens = [
         "suppress:tests/gates/test_config.py",
@@ -480,58 +564,78 @@ def test_template_rule_reach_sees_paths_and_wider_patterns() -> None:
     ]
 
 
-def test_delegation_never_lifts_a_gate_for_a_whole_tree() -> None:
+def test_delegated_mypy_tokens_name_one_module() -> None:
     tokens = [
         "mypy:backend_logic.*",
+        "mypy:backend_logic._shared.*",
+        "mypy:backend_logic.notes.*",
+        "mypy:tests.mechanisms.*",
         "mypy:*.parse",
-        "mypy:http_adapter.*.app",
-        "mypy:backend_logic.p?",
-        "mypy:backend_logic.pg.*",
-        "mypy:backend_logic.pg.*.pool",
+        "mypy:backend_logic.p?.pool",
+        "mypy:backend_logic.[p]g.pool",
+        "mypy:backend_logic.pg.pool.pipeline",
         "mypy:wire_client",
         "eager:backend_logic",
         "suppress:backend_logic/x.py",
     ]
-    assert [token for token in tokens if covers_a_whole_tree(token)] == [
+    assert [token for token in tokens if names_a_pattern(token)] == [
         "mypy:backend_logic.*",
+        "mypy:backend_logic._shared.*",
+        "mypy:backend_logic.notes.*",
+        "mypy:tests.mechanisms.*",
         "mypy:*.parse",
-        "mypy:http_adapter.*.app",
-        "mypy:backend_logic.p?",
+        "mypy:backend_logic.p?.pool",
+        "mypy:backend_logic.[p]g.pool",
     ]
     log = (
         "## Entries\n"
-        "### whole tree\n"
+        "### a family\n"
         "- Status: approved\n"
         f"{DELEGATION}"
         f"{CRITIC.format('the cost', 'approve')}"
-        "- Exempts: `mypy:backend_logic.*`\n"
-        "### one boundary\n"
+        "- Exempts: `mypy:backend_logic.notes.*`\n"
+        "### one module\n"
         "- Status: approved\n"
         f"{DELEGATION}"
         f"{CRITIC.format('the cost', 'approve')}"
-        "- Exempts: `mypy:backend_logic.pg.*`\n"
-        "### the owner may still decide it\n"
+        "- Exempts: `mypy:backend_logic.pg.pool.pipeline`\n"
+        "### the owner may still decide a pattern\n"
         "- Status: approved\n"
         f"{OWNER}"
         "- Exempts: `mypy:http_adapter.*`\n"
     )
     assert [(e.target, e.entry) for e in approved(log)] == [
-        ("backend_logic.pg.*", "one boundary"),
-        ("http_adapter.*", "the owner may still decide it"),
+        ("backend_logic.pg.pool.pipeline", "one module"),
+        ("http_adapter.*", "the owner may still decide a pattern"),
     ]
     assert problems(log) == [
-        "whole tree: a delegation never lifts a gate for a whole tree: `mypy:backend_logic.*`",
+        "a family: a delegated `mypy:` token names one module: `mypy:backend_logic.notes.*`",
     ]
+
+
+def support_name(module: str) -> str:
+    """The tests/support file a module name may resolve to, under either naming scheme.
+
+    tests/support is on mypy_path and the pytest pythonpath, so `deviations` is that file; from
+    the root it is `tests.support.deviations`. Anything else is named by its first component.
+    """
+    parts = module.split(".")
+    return parts[2] if parts[:2] == ["tests", "support"] and len(parts) > 2 else parts[0]
 
 
 def imported_names(source: str) -> set[str]:
-    """Top-level names a module imports absolutely, at any depth (a lazy import in a function)."""
+    """Names of the modules a module imports absolutely, at any depth (a lazy import in a
+    function), each reduced to the tests/support file it may resolve to."""
     names: set[str] = set()
     for node in ast.walk(ast.parse(source)):
         if isinstance(node, ast.Import):
-            names.update(alias.name.split(".")[0] for alias in node.names)
+            names.update(support_name(alias.name) for alias in node.names)
         elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
-            names.add(node.module.split(".")[0])
+            if node.module == "tests.support":
+                # `from tests.support import deviations` imports the modules themselves.
+                names.update(alias.name for alias in node.names)
+            else:
+                names.add(support_name(node.module))
     return names
 
 
@@ -567,19 +671,39 @@ def test_support_reader_follows_every_import_form(tmp_path: Path) -> None:
     (gates / "test_a.py").write_text(
         "import tomllib\n"
         "from helper import tool\n"
+        "from tests.support.rooted import thing\n"
+        "from tests.support import member, other_member\n"
+        "import tests.support.dotted\n"
+        "import tests\n"
         "from . import relative\n"
         "def test_x() -> None:\n"
         "    import later\n",
         encoding="utf-8",
     )
     (support / "helper.py").write_text("import os\nimport chained.sub\n", encoding="utf-8")
-    for name in ("chained.py", "later.py", "tomllib.pyi", "relative.py", "yaml.pyi", "own.py"):
+    for name in (
+        "chained.py",
+        "later.py",
+        "tomllib.pyi",
+        "relative.py",
+        "yaml.pyi",
+        "own.py",
+        "rooted.py",
+        "member.py",
+        "other_member.pyi",
+        "dotted.py",
+        "support.py",
+    ):
         (support / name).write_text("", encoding="utf-8")
     assert support_files_the_gates_import(tmp_path) == {
         "helper.py",
         "chained.py",
         "later.py",
         "tomllib.pyi",
+        "rooted.py",
+        "member.py",
+        "other_member.pyi",
+        "dotted.py",
     }
 
 

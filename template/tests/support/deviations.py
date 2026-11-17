@@ -20,17 +20,21 @@ or by the orchestrator, under a delegation the owner wrote, after an independent
 the owner wrote; an agent never approves its own proposal without one. A delegated entry grants
 nothing without the critic's `approve`, nor when one of its tokens reaches the template's own
 rules (tests/gates/, the files of TEMPLATE_SUPPORT_FILES, pyproject.toml): those change only in
-the pipefeuille, by its owner. Nor when a `mypy:` pattern lifts the gate for a whole tree
-(`backend_logic.*`): that loosens pyproject.toml rather than exempting one boundary module.
+the pipefeuille, by its owner. Nor when a `mypy:` token is a pattern (`backend_logic.notes.*`)
+rather than one module: a pattern opens modules nobody reviewed, which loosens pyproject.toml.
 
 The reader is strict on purpose, because whatever it tolerates an agent can use to hide a grant:
-- `## Entries` ends at the next heading of level 1 or 2. Fenced code and HTML comments are read
-  as CommonMark renders them outside it (the entry template and the examples live there), and
-  are a problem inside it: nothing in the section may be hidden from the rendered page.
+- It refuses markup instead of modelling how a page renders it. The log holds no HTML comment
+  and no line that starts an HTML block; inside `## Entries` there is also no code fence, HTML
+  tag, escaped backtick or line of only `=` or `-`. Headings have no closing `#` sequence, and
+  fence and heading lines take no whitespace but spaces and tabs. Code fences outside the
+  section (the entry template and the examples) are followed as CommonMark does: same
+  character, at least as long, nothing but spaces or tabs after the closing run.
+- `## Entries` ends at the next heading of level 1 or 2.
 - Inside an entry (a `###` heading), each field is one line at column 0 and appears at most
   once; an empty, repeated or indented field, or a `####` heading, is a problem.
 - Any problem of an entry voids every token of that entry; a problem of the section itself
-  (markup, an unclosed fence or comment) voids every entry of the log.
+  (refused markup, an unclosed fence, a second or missing `## Entries`) voids every entry.
 """
 
 import posixpath
@@ -85,6 +89,11 @@ TEMPLATE_RULE_PATHS = (
 )
 # Shell glob characters, as fnmatch reads them; mypy itself reads only a whole `*` component.
 GLOB = frozenset("*?[")
+# A line that starts an HTML block (CommonMark types 1 to 7 all open with `<` and one of these),
+# any HTML tag, and a setext underline or thematic break: refused, never modelled.
+HTML_BLOCK = re.compile(r" {0,3}<[A-Za-z/!?]")
+HTML_TAG = re.compile(r"<[A-Za-z/!?]")
+UNDERLINE = re.compile(r" {0,3}(?:=+|-+)[ \t]*")
 ROOT = Path(__file__).resolve().parents[2]
 
 OWNER_FIELD = '`Approved by owner: YYYY-MM-DD "..."`'
@@ -131,7 +140,14 @@ def heading(raw: str) -> tuple[int, str] | None:
     rest = text[level:]
     if not 1 <= level <= 6 or (rest and not rest.startswith((" ", "\t"))):
         return None
-    return level, rest.strip()
+    # CommonMark strips only spaces and tabs around the text; other whitespace is refused.
+    return level, rest.strip(" \t")
+
+
+def has_closing_sequence(title: str) -> bool:
+    """`## Entries ##` or `### ###`: the page drops the trailing `#`s, the reader would not."""
+    kept = title.rstrip("#")
+    return kept != title and (not kept or kept.endswith((" ", "\t")))
 
 
 def fence_opening(raw: str) -> tuple[str, int] | None:
@@ -147,51 +163,38 @@ def fence_opening(raw: str) -> tuple[str, int] | None:
 
 
 def fence_closes(raw: str, fence: tuple[str, int]) -> bool:
-    """A closing fence: same character, at least as long, nothing after it."""
+    """A closing fence: same character, at least as long, then only spaces or tabs."""
     text = raw.lstrip(" ")
     mark, length = fence
     run = len(text) - len(text.lstrip(mark))
-    return len(raw) - len(text) <= 3 and run >= length and not text[run:].strip()
+    return len(raw) - len(text) <= 3 and run >= length and not text[run:].strip(" \t")
 
 
-def without_code_spans(line: str) -> str:
-    """The line without its code spans: `<!--` written as code is text, not a comment."""
-    kept: list[str] = []
-    position = 0
-    while position < len(line):
-        if line[position] != "`":
-            kept.append(line[position])
-            position += 1
-            continue
-        length = len(line[position:]) - len(line[position:].lstrip("`"))
-        # A span closes at the next run of exactly as many backticks.
-        search = position + length
-        closing = -1
-        while (found := line.find("`", search)) >= 0:
-            run = len(line[found:]) - len(line[found:].lstrip("`"))
-            if run == length:
-                closing = found
-                break
-            search = found + run
-        if closing < 0:
-            kept.append(line[position : position + length])
-            position += length
-        else:
-            position = closing + length
-    return "".join(kept)
+def markup_problem(raw: str, in_section: bool) -> str | None:
+    """Markup the reader refuses instead of modelling how a page would render it.
 
-
-def comment_after(line: str, inside: bool) -> bool:
-    """Whether an HTML comment is still open after this line, given whether it was before."""
-    line = without_code_spans(line)
-    position = 0
-    while True:
-        marker = "-->" if inside else "<!--"
-        found = line.find(marker, position)
-        if found < 0:
-            return inside
-        inside = not inside
-        position = found + len(marker)
+    Anywhere outside a code fence: an HTML comment marker (the log holds no comments, so none
+    can hide a line or desynchronize from the page) and a line that starts an HTML block (a
+    `<details>` could fold `## Entries` away). Inside `## Entries` also: any HTML tag, an
+    escaped backtick (it turns a code span back into markup), a code fence and a setext
+    underline or thematic break (a line of only `=` or `-`), which would retitle or split the
+    entry above it on the page.
+    """
+    if "<!--" in raw or "-->" in raw:
+        return "an HTML comment marker (the log holds no HTML comments)"
+    if HTML_BLOCK.match(raw):
+        return "a line that starts an HTML block"
+    if not in_section:
+        return None
+    if raw.lstrip().startswith(("```", "~~~")):
+        return "a code fence inside `## Entries`"
+    if HTML_TAG.search(raw):
+        return "an HTML tag inside `## Entries`"
+    if "\\`" in raw:
+        return "an escaped backtick inside `## Entries`"
+    if UNDERLINE.fullmatch(raw):
+        return "a line of only `=` or `-` inside `## Entries`"
+    return None
 
 
 def read_log(text: str) -> Log:
@@ -201,7 +204,6 @@ def read_log(text: str) -> Log:
     in_section = False
     seen_section = False
     fence: tuple[str, int] | None = None
-    in_comment = False
     title: str | None = None
     fields: dict[str, str] = {}
     entry_faults: list[str] = []
@@ -232,30 +234,29 @@ def read_log(text: str) -> Log:
         )
 
     for number, raw in enumerate(text.splitlines(), start=1):
-        # Hidden lines first, as the rendered page hides them.
+        # A fence or heading line takes only spaces and tabs as whitespace: CommonMark reads a
+        # no-break space where this reader would read a space (a fence that never closes).
+        if raw.strip().startswith(("```", "~~~", "#")) and any(
+            char.isspace() and char not in " \t" for char in raw
+        ):
+            faults.append(
+                f"line {number}: whitespace other than space or tab on a fence or heading"
+            )
+            continue
         if fence is not None:
             if fence_closes(raw, fence):
                 fence = None
             continue
-        if in_comment:
-            # Reported once, on the line that opened it.
-            in_comment = comment_after(raw, inside=True)
+        if (problem := markup_problem(raw, in_section)) is not None:
+            faults.append(f"line {number}: {problem}")
             continue
         if (opening := fence_opening(raw)) is not None:
             fence = opening
-            if in_section:
-                faults.append(f"line {number}: a code fence inside `## Entries`")
-            continue
-        bare = without_code_spans(raw)
-        if "<!--" in bare or "-->" in bare:
-            in_comment = comment_after(raw, inside=False)
-            if in_section:
-                faults.append(f"line {number}: an HTML comment inside `## Entries`")
-            continue
-        if in_section and raw.lstrip().startswith(("```", "~~~")):
-            faults.append(f"line {number}: a code fence inside `## Entries`")
             continue
         level_text = heading(raw)
+        if level_text is not None and has_closing_sequence(level_text[1]):
+            faults.append(f"line {number}: a heading with a closing `#` sequence")
+            continue
         if level_text is not None and level_text[0] <= 2:
             close()
             title = None
@@ -298,8 +299,6 @@ def read_log(text: str) -> Log:
     close()
     if fence is not None:
         faults.append("the log ends inside a code fence")
-    if in_comment:
-        faults.append("the log ends inside an HTML comment")
     if not seen_section:
         # Markup that hid the heading would otherwise void every approval without a word.
         faults.append("the log has no visible `## Entries` section")
@@ -416,15 +415,16 @@ def reaches_template_rules(token: str, root: Path = ROOT) -> bool:
     return False
 
 
-def covers_a_whole_tree(token: str) -> bool:
-    """A `mypy:` pattern with a glob in its first two components lifts the flag for a tree.
+def names_a_pattern(token: str) -> bool:
+    """A delegated `mypy:` token names one module; a glob would open modules nobody reviewed.
 
-    `backend_logic.*`, `*.parse` or `http_adapter.*.app` switch `disallow_any_expr` off for a
-    whole top-level package, not one boundary module (C2): that is loosening `pyproject.toml`,
-    which no delegation covers. `backend_logic.pg.*` and a bare `wire_client` are one boundary.
+    `backend_logic.*`, `backend_logic.notes.*` or `tests.mechanisms.*` lift `disallow_any_expr`
+    for a tree, a family or a test folder, and every module added there later: that loosens
+    `pyproject.toml` rather than exempting one boundary module (C2). Only the owner may approve
+    a pattern; under a delegation each module is named (`backend_logic.pg.pool.pipeline`).
     """
     kind, _, target = token.partition(":")
-    return kind == "mypy" and any(GLOB & set(part) for part in target.split(".")[:2])
+    return kind == "mypy" and bool(GLOB & set(target))
 
 
 def entry_problems(entry: Entry) -> list[str]:
@@ -466,10 +466,8 @@ def delegation_problems(entry: Entry) -> list[str]:
             found.append(
                 f"{entry.title}: a delegation never covers the template's own rules: `{token}`"
             )
-        elif covers_a_whole_tree(token):
-            found.append(
-                f"{entry.title}: a delegation never lifts a gate for a whole tree: `{token}`"
-            )
+        elif names_a_pattern(token):
+            found.append(f"{entry.title}: a delegated `mypy:` token names one module: `{token}`")
     return found
 
 

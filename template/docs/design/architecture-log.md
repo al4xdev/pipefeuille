@@ -20,15 +20,20 @@ When the owner has delegated approvals in writing ([AGENTS.md → Deviations](..
 - `- Approved by delegation: YYYY-MM-DD "<the owner's delegation, verbatim>"`: the date the owner wrote the delegation, and its exact words.
 - `- Critic: YYYY-MM-DD <critic> checked <what>; verdict: approve`: who reviewed it (an independent critic subagent, not the agent that wrote the proposal; name its tier, e.g. "critic subagent (intermediate model)"), what it checked, and its verdict, on or after the delegation's date. The `Critic` line must contain ` checked `, name the critic and the object with at least one letter or digit, write `verdict` exactly once and end with `; verdict: approve` or `; verdict: reject`; a rejected review never sits under `Status: approved`. After a revision, the new review replaces the `Critic` line, and the earlier verdict and findings go into `Decision and reason`: two `Critic` lines are a problem.
 
-A delegation never covers the template's own rules: a delegated entry with a token that reaches `tests/gates/`, the template's files in `tests/support/` (`TEMPLATE_SUPPORT_FILES` in `tests/support/deviations.py`: `deviations.py`, `architecture.py`, `boundaries.py`, `declarations.py`, `tomllib.pyi`) or `pyproject.toml` (as a `suppress:` path, or a `mypy:` pattern that covers one of their modules) grants nothing. Neither does a delegated `mypy:` pattern with a glob in its first two components (`backend_logic.*`, `*.parse`): it lifts the gate for a whole tree, not one boundary module; only the owner can approve that. Nor an entry with both approval fields. A project's own helpers and stubs in `tests/support/` are delegable.
+A delegation never covers the template's own rules: a delegated entry with a token that reaches `tests/gates/`, the template's files in `tests/support/` (`TEMPLATE_SUPPORT_FILES` in `tests/support/deviations.py`: `deviations.py`, `architecture.py`, `boundaries.py`, `declarations.py`, `tomllib.pyi`) or `pyproject.toml` (as a `suppress:` path, or a `mypy:` pattern that covers one of their modules) grants nothing. Under a delegation a `mypy:` token names one module (`backend_logic.pg.pool.pipeline`), never a pattern (`backend_logic.*`, `backend_logic.notes.*`, `tests.mechanisms.*`, any `*`, `?` or `[`): a pattern lifts the gate for a tree, a family or a test folder, and for every module added there later; only the owner can approve that. Nor an entry with both approval fields. A project's own helpers and stubs in `tests/support/` are delegable.
 
 The gates read this file: `tests/support/deviations.py` collects the `- Exempts:` tokens of approved entries under `## Entries`. Write every field for that reader, which is strict on purpose (whatever it tolerated, an agent could use to hide a grant):
 
-- `## Entries` runs to the next level-1 or level-2 heading; there is exactly one. Before it, code fences and HTML comments are read as the rendered page shows them (the entry template and the examples above are fenced). Inside it there is no code fence and no HTML comment at all, not even closed on one line: nothing in the section may be hidden from the rendered page. A `<!--` written inside backticks is text.
+- `## Entries` runs to the next level-1 or level-2 heading; there is exactly one, and nothing in it may be hidden or reshaped on the rendered page. The reader refuses such markup instead of modelling how a page would render it:
+  - anywhere in the log outside a code fence: an HTML comment, or either of its two markers, even inside backticks or in prose (none is needed: write "an HTML comment" in words); a line that starts with `<` and a letter, `/`, `!` or `?` (an HTML block, which can fold the section away);
+  - inside `## Entries`: a code fence, any HTML tag (`<` and a letter, `/`, `!` or `?`, anywhere on the line: write placeholders without angle brackets), a backslash before a backtick, and a line of only `=` or only `-` (it would retitle or split the entry above it);
+  - on any line: a heading with a closing `#` sequence (`## Entries ##`, `### ###`), and whitespace other than spaces and tabs on a fence or heading line.
+
+  Before `## Entries`, code fences are followed as CommonMark does (the entry template and the examples above are fenced): a fence closes on the same character, at least as long, followed by nothing but spaces or tabs.
 - An entry starts at a `###` heading. Its fields (`- Status:`, `- Approved by owner:`, `- Approved by delegation:`, `- Critic:`, `- Exempts:`) start at column 0, take one line (the reader does not join wrapped lines), are never empty and appear at most once. A `####` heading inside `## Entries` is a problem.
 - Dates are ASCII `YYYY-MM-DD` and real calendar days. A quote is `YYYY-MM-DD "<words>"`: one space, one double-quoted span with at least three characters and a letter or digit, no `"` inside it (write the owner's inner quotes as single quotes) and nothing after it. Invisible characters (zero-width spaces, bidi marks, control characters) are not words.
 - `- Exempts:` is `none` or backticked tokens separated by `, `, and nothing else: an explanation goes in another field.
-- Any problem in an entry voids every token of that entry, whoever approved it; a problem of the section itself (markup, an unclosed fence or comment, a second `## Entries`, a field outside an entry, no visible `## Entries`) voids every entry.
+- Any problem in an entry voids every token of that entry, whoever approved it; a problem of the section itself (refused markup, an unclosed fence, a second `## Entries`, a field outside an entry, no visible `## Entries`) voids every entry.
 
 The tokens are:
 
@@ -100,10 +105,10 @@ The same kind of entry, approved under a delegation instead of by the owner dire
 
 - Status: approved
 - Approved by delegation: 2026-11-12 "port the spreadsheet import; approve the boundaries it needs yourself, each one after a critic"
-- Critic: 2026-11-12 critic subagent (intermediate model, not the author) checked the 6 mypy errors, the absent typed alternatives and that only `sheets.parse` is exempted; verdict: approve
-- Exempts: `mypy:backend_logic.sheets.parse.*`
+- Critic: 2026-11-12 critic subagent (intermediate model, not the author) checked the 6 mypy errors, the absent typed alternatives and that only the narrowing module is exempted; verdict: approve
+- Exempts: `mypy:backend_logic.sheets.parse.pipeline`
 - Measured cost of following the rule: 6 mypy errors in one module; no stub, no typed alternative.
-- Decision and reason: as in the example above, a narrowing package `sheets/parse/`.
+- Decision and reason: as in the example above, a narrowing package `sheets/parse/`; under a delegation the token names its one module that touches the library, `pipeline`, never `sheets.parse.*`.
 - Evidence needed: as above. Does NOT prove the critic was independent: that is the owner's review.
 - Later result: —
 ```
