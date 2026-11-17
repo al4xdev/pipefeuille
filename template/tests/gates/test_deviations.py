@@ -14,7 +14,15 @@ import tokenize
 from pathlib import Path
 
 import pytest
-from deviations import approved, approved_targets, log_path, problems, reaches_template_rules
+from deviations import (
+    TEMPLATE_SUPPORT_FILES,
+    approved,
+    approved_targets,
+    covers_a_whole_tree,
+    log_path,
+    problems,
+    reaches_template_rules,
+)
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -410,7 +418,12 @@ def test_template_rule_reach_sees_paths_and_wider_patterns() -> None:
         "suppress:./tests/gates/test_style.py",
         "suppress:tests//gates/test_style.py",
         "suppress:tests/support/deviations.py",
+        "suppress:tests/support/boundaries.py",
+        "suppress:tests/support/declarations.py",
+        "suppress:tests/support/tomllib.pyi",
+        "suppress:pyproject.toml",
         "suppress:tests/support/wire_client.py",
+        "suppress:tests/support/yaml.pyi",
         "suppress:tests/gates_extra/x.py",
         "suppress:http_adapter/app.py",
         "mypy:tests.gates.test_style",
@@ -426,8 +439,12 @@ def test_template_rule_reach_sees_paths_and_wider_patterns() -> None:
         "mypy:tests.support.deviations",
         "mypy:deviations",
         "mypy:architecture.*",
+        "mypy:boundaries",
+        "mypy:tests.support.declarations",
+        "mypy:tomllib",
         "mypy:tests.g*",
         "mypy:tests.notes.*",
+        "mypy:yaml",
         "mypy:*.notes.*",
         "mypy:wire_client",
         "mypy:backend_logic.*",
@@ -439,6 +456,10 @@ def test_template_rule_reach_sees_paths_and_wider_patterns() -> None:
         "suppress:./tests/gates/test_style.py",
         "suppress:tests//gates/test_style.py",
         "suppress:tests/support/deviations.py",
+        "suppress:tests/support/boundaries.py",
+        "suppress:tests/support/declarations.py",
+        "suppress:tests/support/tomllib.pyi",
+        "suppress:pyproject.toml",
         "mypy:tests.gates.test_style",
         "mypy:tests.gates.*",
         "mypy:tests.gates.test_added_later",
@@ -452,8 +473,187 @@ def test_template_rule_reach_sees_paths_and_wider_patterns() -> None:
         "mypy:tests.support.deviations",
         "mypy:deviations",
         "mypy:architecture.*",
+        "mypy:boundaries",
+        "mypy:tests.support.declarations",
+        "mypy:tomllib",
         "mypy:tests.g*",
     ]
+
+
+def test_delegation_never_lifts_a_gate_for_a_whole_tree() -> None:
+    tokens = [
+        "mypy:backend_logic.*",
+        "mypy:*.parse",
+        "mypy:http_adapter.*.app",
+        "mypy:backend_logic.p?",
+        "mypy:backend_logic.pg.*",
+        "mypy:backend_logic.pg.*.pool",
+        "mypy:wire_client",
+        "eager:backend_logic",
+        "suppress:backend_logic/x.py",
+    ]
+    assert [token for token in tokens if covers_a_whole_tree(token)] == [
+        "mypy:backend_logic.*",
+        "mypy:*.parse",
+        "mypy:http_adapter.*.app",
+        "mypy:backend_logic.p?",
+    ]
+    log = (
+        "## Entries\n"
+        "### whole tree\n"
+        "- Status: approved\n"
+        f"{DELEGATION}"
+        f"{CRITIC.format('the cost', 'approve')}"
+        "- Exempts: `mypy:backend_logic.*`\n"
+        "### one boundary\n"
+        "- Status: approved\n"
+        f"{DELEGATION}"
+        f"{CRITIC.format('the cost', 'approve')}"
+        "- Exempts: `mypy:backend_logic.pg.*`\n"
+        "### the owner may still decide it\n"
+        "- Status: approved\n"
+        f"{OWNER}"
+        "- Exempts: `mypy:http_adapter.*`\n"
+    )
+    assert [(e.target, e.entry) for e in approved(log)] == [
+        ("backend_logic.pg.*", "one boundary"),
+        ("http_adapter.*", "the owner may still decide it"),
+    ]
+    assert problems(log) == [
+        "whole tree: a delegation never lifts a gate for a whole tree: `mypy:backend_logic.*`",
+    ]
+
+
+def imported_names(source: str) -> set[str]:
+    """Top-level names a module imports absolutely, at any depth (a lazy import in a function)."""
+    names: set[str] = set()
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.Import):
+            names.update(alias.name.split(".")[0] for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+            names.add(node.module.split(".")[0])
+    return names
+
+
+def support_files_the_gates_import(root: Path) -> set[str]:
+    """Files of tests/support that tests/gates import, through other support modules too.
+
+    A module (`deviations.py`) or a stub (`tomllib.pyi`, which replaces the library's types
+    for mypy) a gate depends on is part of the gate: a project must not edit it, and a
+    delegation must not open it.
+    """
+    support = root / "tests" / "support"
+    pending = sorted((root / "tests" / "gates").glob("*.py"))
+    read: set[Path] = set()
+    found: set[str] = set()
+    while pending:
+        path = pending.pop()
+        if path in read:
+            continue
+        read.add(path)
+        for name in imported_names(path.read_text(encoding="utf-8")):
+            for candidate in (support / f"{name}.py", support / f"{name}.pyi"):
+                if candidate.is_file():
+                    found.add(candidate.name)
+                    if candidate.suffix == ".py":
+                        pending.append(candidate)
+    return found
+
+
+def test_support_reader_follows_every_import_form(tmp_path: Path) -> None:
+    gates, support = tmp_path / "tests" / "gates", tmp_path / "tests" / "support"
+    gates.mkdir(parents=True)
+    support.mkdir()
+    (gates / "test_a.py").write_text(
+        "import tomllib\n"
+        "from helper import tool\n"
+        "from . import relative\n"
+        "def test_x() -> None:\n"
+        "    import later\n",
+        encoding="utf-8",
+    )
+    (support / "helper.py").write_text("import os\nimport chained.sub\n", encoding="utf-8")
+    for name in ("chained.py", "later.py", "tomllib.pyi", "relative.py", "yaml.pyi", "own.py"):
+        (support / name).write_text("", encoding="utf-8")
+    assert support_files_the_gates_import(tmp_path) == {
+        "helper.py",
+        "chained.py",
+        "later.py",
+        "tomllib.pyi",
+    }
+
+
+# Where the docs name the template's support files: (document, the line starts with, the list
+# ends before, the prefix of each name). Each must list exactly TEMPLATE_SUPPORT_FILES (the
+# AGENTS.md ones also `tests/gates/`).
+SUPPORT_NAMINGS = (
+    ("AGENTS.md", "| `tests/gates/`, ", " | never edits | never edits |", "tests/support/"),
+    (
+        "AGENTS.md",
+        "`tests/gates/`, ",
+        " are copied from the template and **never edited**",
+        "tests/support/",
+    ),
+    ("README.md", "| `tests/support/` |", " are never edited in a project", ""),
+)
+
+
+def naming_problems(texts: dict[str, str], files: tuple[str, ...]) -> list[str]:
+    """Where a document's list of the template's support files differs from `files`."""
+    found: list[str] = []
+    for document, start, end, prefix in SUPPORT_NAMINGS:
+        lines = [
+            line for line in texts[document].splitlines() if line.startswith(start) and end in line
+        ]
+        if len(lines) != 1:
+            found.append(f"{document}: {len(lines)} lines start with {start!r} and hold {end!r}")
+            continue
+        # The list is the last sentence before `end`; names sit between backticks.
+        listed = set(lines[0][: lines[0].index(end)].rpartition(". ")[2].split("`")[1::2])
+        expected = {f"{prefix}{name}" for name in files}
+        if prefix:
+            expected.add("tests/gates/")
+        if missing := sorted(expected - listed):
+            found.append(f"{document} ({start.strip()}): missing {missing}")
+        if extra := sorted(listed - expected):
+            found.append(f"{document} ({start.strip()}): not template files {extra}")
+    return found
+
+
+def test_naming_reader_reports_missing_and_extra_names() -> None:
+    texts = {
+        "AGENTS.md": (
+            "| `tests/gates/`, `tests/support/a.py` | never edits | never edits |\n"
+            "`tests/gates/`, `tests/support/a.py`, `tests/support/b.pyi` and "
+            "`tests/support/own.py` are copied from the template and **never edited** here.\n"
+        ),
+        "README.md": (
+            "| `tests/support/` | Helpers (`own.py`). `a.py` are never edited in a project |\n"
+        ),
+    }
+    assert naming_problems(texts, ("a.py", "b.pyi")) == [
+        "AGENTS.md (| `tests/gates/`,): missing ['tests/support/b.pyi']",
+        "AGENTS.md (`tests/gates/`,): not template files ['tests/support/own.py']",
+        "README.md (| `tests/support/` |): missing ['b.pyi']",
+    ]
+    assert naming_problems({"AGENTS.md": "", "README.md": ""}, ("a.py",)) == [
+        "AGENTS.md: 0 lines start with '| `tests/gates/`, ' and hold "
+        "' | never edits | never edits |'",
+        "AGENTS.md: 0 lines start with '`tests/gates/`, ' and hold "
+        "' are copied from the template and **never edited**'",
+        "README.md: 0 lines start with '| `tests/support/` |' and hold "
+        "' are never edited in a project'",
+    ]
+
+
+def test_template_support_files_are_named_once() -> None:
+    # One list (deviations.TEMPLATE_SUPPORT_FILES) decides what a project never edits in
+    # tests/support and what no delegation opens; the gates' imports and the docs must agree.
+    support = ROOT / "tests" / "support"
+    assert [name for name in TEMPLATE_SUPPORT_FILES if not (support / name).is_file()] == []
+    assert support_files_the_gates_import(ROOT) == set(TEMPLATE_SUPPORT_FILES)
+    texts = {name: (ROOT / name).read_text(encoding="utf-8") for name in ("AGENTS.md", "README.md")}
+    assert naming_problems(texts, TEMPLATE_SUPPORT_FILES) == []
 
 
 def test_architecture_log_is_well_formed() -> None:
